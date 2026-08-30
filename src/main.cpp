@@ -863,10 +863,11 @@ static void handleStats()
              ",\"token\":\"" + jesc(authToken) + "\"" +
              ",\"timezone\":\"" + jesc(timezoneStr) + "\"" +
              ",\"profiles\":[";
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < numProfiles; i++)
   {
     j += (i ? "," : "");
-    j += "{\"start\":" + String(profiles[i].startBedtimeMinutes) +
+    j += "{\"name\":\"" + jesc(profiles[i].name) + "\"" +
+         ",\"start\":" + String(profiles[i].startBedtimeMinutes) +
          ",\"end\":" + String(profiles[i].endBedtimeMinutes) +
          ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"}";
   }
@@ -878,6 +879,7 @@ static void handleStats()
     bool blocked = isTimeBlocked(c.currentProfileId);
     j += (i ? "," : "");
     j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + jesc(c.mac) +
+         "\",\"name\":\"" + jesc(c.friendlyName) +
          "\",\"profile\":" + String(c.currentProfileId) +
          ",\"blocked\":" + (blocked ? "true" : "false") + "}";
   }
@@ -924,8 +926,10 @@ static void handleSaveProfiles()
     int idx = 0;
     for (JsonObject p : profArray)
     {
-      if (idx >= 3)
+      if (idx >= 10)
         break;
+      if (!p["name"].isNull())
+        profiles[idx].name = p["name"].as<String>();
       if (!p["start"].isNull())
         profiles[idx].startBedtimeMinutes = p["start"].as<int>();
       if (!p["end"].isNull())
@@ -939,6 +943,10 @@ static void handleSaveProfiles()
         }
       }
       idx++;
+    }
+    if (idx > 0)
+    {
+      numProfiles = idx;
     }
   }
 
@@ -976,6 +984,10 @@ static void handleAssignProfile()
     if (clients[i].mac.equalsIgnoreCase(mac))
     {
       clients[i].currentProfileId = pid;
+      if (web.hasArg("name"))
+      {
+        clients[i].friendlyName = web.arg("name");
+      }
       found = true;
       break;
     }
@@ -984,6 +996,7 @@ static void handleAssignProfile()
   {
     clients[numClients].ip = 0;
     clients[numClients].mac = mac;
+    clients[numClients].friendlyName = web.hasArg("name") ? web.arg("name") : "";
     clients[numClients].currentProfileId = pid;
     clients[numClients].lastSeen = millis();
     numClients++;
