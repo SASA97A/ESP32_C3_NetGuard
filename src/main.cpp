@@ -10,6 +10,8 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
+#include <time.h>
+#include <sntp.h>
 #include "lwip/etharp.h"
 #include "lwip/netif.h"
 #include "secrets.h"
@@ -316,6 +318,35 @@ static int buildBlocked(uint8_t *pkt, int qend, uint16_t qtype)
     return qend + sizeof(ans);
   }
   return qend;
+}
+
+void setupTime() {
+  if (timezoneStr.length() == 0) {
+    timezoneStr = "UTC0"; // Fallback
+  }
+  sntp_servermode_dhcp(1); // Enable DHCP provided NTP if available
+  configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
+}
+
+bool isTimeBlocked(uint8_t profileId) {
+  if (profileId > 2) return false;
+  
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 10)) return false; // Fail open if no time
+
+  int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  int start = profiles[profileId].startBedtimeMinutes;
+  int end = profiles[profileId].endBedtimeMinutes;
+  
+  if (start == -1 || end == -1) return false; // Disabled
+  
+  if (start > end) {
+    // Crosses midnight (e.g. 21:00 to 07:00)
+    return (currentMinutes >= start || currentMinutes < end);
+  } else {
+    // Standard window
+    return (currentMinutes >= start && currentMinutes < end);
+  }
 }
 
 // ---- async DNS forwarding ----
@@ -1323,6 +1354,7 @@ void setup()
   loadAuth();
   loadCustom();
   loadConfig();
+  setupTime();
   loadUpdateCfg();
   loadDhcpCfg();
   // reopenBlocklist();
