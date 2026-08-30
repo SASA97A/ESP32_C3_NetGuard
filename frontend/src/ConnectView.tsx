@@ -44,43 +44,95 @@ export default function ConnectView({ onConnected }: ConnectViewProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-          Connect to Gateway
-        </h2>
-      </div>
-
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <form className="space-y-6" onSubmit={handleConnect}>
-            <div>
-              <label htmlFor="ip" className="block text-sm font-medium text-gray-700">Gateway IP Address</label>
-              <div className="mt-1">
-                <input id="ip" name="ip" type="text" required value={ip} onChange={e => setIp(e.target.value)}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm" />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">Dashboard Password</label>
-              <div className="mt-1">
-                <input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm" />
-              </div>
-            </div>
-
-            {error && <div className="text-red-600 text-sm">{error}</div>}
-
-            <div>
-              <button type="submit" disabled={loading}
-                className="flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-indigo-300">
-                {loading ? 'Connecting...' : 'Connect'}
-              </button>
-            </div>
-          </form>
+    <div className="min-h-screen bg-surface text-on-surface flex flex-col font-body-md text-body-md">
+      {/* TopAppBar */}
+      <header className="fixed top-0 w-full z-50 bg-surface border-b border-outline-variant flex justify-between items-center px-container-padding h-14 w-full">
+        <div className="flex items-center gap-inline-gap">
+          <span className="material-symbols-outlined text-primary text-[24px]">shield</span>
+          <h1 className="font-headline-md text-headline-md font-bold text-primary">NetGuard Admin</h1>
         </div>
-      </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex items-center justify-center pt-14 p-container-padding">
+        {/* Login Card */}
+        <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-lg p-section-margin shadow-sm transition-all hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <div className="text-center mb-stack-gap pb-4">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary-container text-on-primary-container mb-stack-gap">
+              <span className="material-symbols-outlined text-[24px]">router</span>
+            </div>
+            <h2 className="font-headline-lg text-headline-lg text-on-surface mb-2">Connect to Gateway</h2>
+            <p className="font-body-md text-body-md text-on-surface-variant">Enter your credentials to manage network security.</p>
+          </div>
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-8" id="loading-state">
+              <span className="material-symbols-outlined animate-spin text-primary text-[32px] mb-4">sync</span>
+              <p className="font-body-md text-body-md text-on-surface-variant">Establishing secure connection...</p>
+            </div>
+          ) : (
+            <form className="flex flex-col gap-stack-gap" onSubmit={handleConnect}>
+              {/* Gateway IP */}
+              <div className="flex flex-col gap-base">
+                <label className="font-label-md text-label-md text-on-surface" htmlFor="gateway-ip">Gateway IP</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-outline">
+                    <span className="material-symbols-outlined text-[18px]">dns</span>
+                  </span>
+                  <input
+                    className="w-full pl-10 pr-3 py-2 bg-surface-container-lowest border border-outline-variant rounded-DEFAULT focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-label-md text-label-md text-on-surface transition-colors"
+                    id="gateway-ip"
+                    name="gateway-ip"
+                    placeholder="e.g. 192.168.1.1"
+                    type="text"
+                    value={ip}
+                    onChange={e => setIp(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="flex flex-col gap-base">
+                <label className="font-label-md text-label-md text-on-surface" htmlFor="password">Dashboard Password</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-outline">
+                    <span className="material-symbols-outlined text-[18px]">lock</span>
+                  </span>
+                  <input
+                    className="w-full pl-10 pr-3 py-2 bg-surface-container-lowest border border-outline-variant rounded-DEFAULT focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-md text-body-md text-on-surface transition-colors"
+                    id="password"
+                    name="password"
+                    placeholder="••••••••"
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Error */}
+              {error && (
+                <div className="flex items-start gap-2 p-3 bg-error-container text-on-error-container rounded-DEFAULT border border-error/20 text-error mt-2">
+                  <span className="material-symbols-outlined text-[18px] mt-0.5">error</span>
+                  <p className="font-body-md text-body-md text-sm text-error">{error}</p>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <button
+                  className="w-full h-10 bg-primary hover:bg-primary/90 text-on-primary font-body-md font-semibold rounded-DEFAULT flex items-center justify-center gap-base transition-colors"
+                  id="connect-btn"
+                  type="submit"
+                  disabled={loading}
+                >
+                  <span>Connect</span>
+                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
