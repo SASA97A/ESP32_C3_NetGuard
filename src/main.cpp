@@ -25,7 +25,6 @@ static const int DNS_BUF_SIZE = 1232;
 static const int MAX_PENDING = 32;
 static const int MAX_CLIENTS = 96;
 static const int MAX_CUSTOM = 200;
-static const int MAX_BAN = 32;
 static const int MAX_DHCP_LEASES = 32;
 static const uint32_t UPSTREAM_TIMEOUT_MS = 2000;
 static const uint32_t REMOTE_FETCH_IDLE_MS = 3000;
@@ -65,60 +64,6 @@ static uint64_t fnv64(const char *s, size_t n)
 }
 static inline uint64_t fnv40(const char *s, size_t n) { return fnv64(s, n) & HASH_MASK; }
 
-// ---- blocklist (flash hash table + RAM bloom filter) ----
-static const uint8_t BL_MAGIC[4] = {'C', 'A', 'D', 'B'};
-static const uint8_t BL_VERSION = 1;
-static const int BL_HEADER_SIZE = 20;
-
-File blocklist;
-uint32_t numHashes = 0;
-uint32_t hashTableOffset = 0;
-
-uint8_t *bloomFilter = nullptr;
-uint32_t bloomBits = 0;
-uint8_t bloomK = 0;
-
-static bool bloomMayContain(uint64_t h64)
-{
-  if (!bloomFilter || bloomBits == 0 || bloomK == 0)
-    return true;
-  uint32_t h1 = (uint32_t)(h64 & 0xFFFFFFFF);
-  uint32_t h2 = (uint32_t)(h64 >> 32);
-  if (h2 == 0)
-    h2 = 0xFFFFFFFF;
-  for (uint8_t i = 0; i < bloomK; i++)
-  {
-    uint32_t pos = (h1 + i * h2) % bloomBits;
-    if (!(bloomFilter[pos >> 3] & (1 << (pos & 7))))
-      return false;
-  }
-  return true;
-}
-
-static bool inFlash(uint64_t h)
-{
-  if (!blocklist || numHashes == 0)
-    return false;
-  int32_t lo = 0, hi = (int32_t)numHashes - 1;
-  uint8_t b[HASH_BYTES];
-  while (lo <= hi)
-  {
-    int32_t mid = (lo + hi) >> 1;
-    blocklist.seek(hashTableOffset + (uint32_t)mid * HASH_BYTES);
-    blocklist.read(b, HASH_BYTES);
-    uint64_t v = 0;
-    for (int k = 0; k < HASH_BYTES; k++)
-      v |= (uint64_t)b[k] << (8 * k);
-    if (v < h)
-      lo = mid + 1;
-    else if (v > h)
-      hi = mid - 1;
-    else
-      return true;
-  }
-  return false;
-}
-
 // ---- custom domains ----
 String customDom[MAX_CUSTOM];
 uint64_t customHash[MAX_CUSTOM];
@@ -154,29 +99,6 @@ static bool inCustom(uint64_t h)
       hi = mid - 1;
     else
       return true;
-  }
-  return false;
-}
-
-static bool isBlocked(const char *domain, size_t dlen)
-{
-  const char *p = domain;
-  size_t remaining = dlen;
-  while (remaining > 0)
-  {
-    uint64_t h64 = fnv64(p, remaining);
-    uint64_t h40 = h64 & HASH_MASK;
-    bool checkFlash = bloomMayContain(h64);
-    if (checkFlash && (inFlash(h40) || inCustom(h40)))
-      return true;
-    const char *dot = (const char *)memchr(p, '.', remaining);
-    if (!dot)
-      break;
-    size_t consumed = (size_t)(dot - p) + 1;
-    remaining -= consumed;
-    p = dot + 1;
-    if (!memchr(p, '.', remaining))
-      break;
   }
   return false;
 }
@@ -251,69 +173,6 @@ static void removeCustom(String d)
     }
 }
 
-// ---- banned IPs ----
-uint32_t bannedIP[MAX_BAN];
-int numBanned = 0;
-
-static bool isBannedIP(uint32_t ip)
-{
-  for (int i = 0; i < numBanned; i++)
-    if (bannedIP[i] == ip)
-      return true;
-  return false;
-}
-
-static bool addBannedIP(uint32_t ip)
-{
-  if (isBannedIP(ip) || numBanned >= MAX_BAN)
-    return false;
-  bannedIP[numBanned++] = ip;
-  return true;
-}
-
-static bool removeBannedIP(uint32_t ip)
-{
-  for (int i = 0; i < numBanned; i++)
-    if (bannedIP[i] == ip)
-    {
-      for (int j = i; j < numBanned - 1; j++)
-        bannedIP[j] = bannedIP[j + 1];
-      numBanned--;
-      return true;
-    }
-  return false;
-}
-
-static void loadBanned()
-{
-  numBanned = 0;
-  File f = LittleFS.open("/banned.txt", "r");
-  if (!f)
-    return;
-  while (f.available() && numBanned < MAX_BAN)
-  {
-    String l = f.readStringUntil('\n');
-    l.trim();
-    IPAddress ip;
-    if (l.length() && ip.fromString(l))
-      bannedIP[numBanned++] = (uint32_t)ip;
-  }
-  f.close();
-}
-
-static void saveBanned()
-{
-  File f = LittleFS.open("/banned.txt", "w");
-  if (!f)
-    return;
-  for (int i = 0; i < numBanned; i++)
-  {
-    IPAddress ip(bannedIP[i]);
-    f.println(ip.toString());
-  }
-  f.close();
-}
-
 // ---- client table ----
 struct Dev
 {
@@ -366,7 +225,7 @@ static Dev *getClient(uint32_t ip)
   c->ip = ip;
   c->blocked = c->allowed = 0;
   c->lastSeen = millis();
-  c->banned = isBannedIP(ip);
+  c->banned = false;
   getMac(ip, c->mac);
   return c;
 }
@@ -505,8 +364,7 @@ static void handleDns()
   size_t dl = parseQuery(dnsBuf, qlen, domain, &qtype, &qend);
 
   Dev *c = getClient((uint32_t)cip);
-  bool ban = c && c->banned;
-  bool blocked = ban || (dl && numHashes && isBlocked(domain, dl));
+  bool blocked = false;
 
   if (blocked)
   {
@@ -625,8 +483,7 @@ static void handleTcpDns()
   int qend = total;
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
-  bool ban = c && c->banned;
-  bool blocked = ban || (dl && numHashes && isBlocked(domain, dl));
+  bool blocked = false;
 
   int rlen = blocked ? buildBlocked(tcpBuf, qend, qtype) : forwardUpstreamSync(tcpBuf, total);
   if (blocked)
@@ -938,10 +795,10 @@ static void handleStats()
   uint32_t up = millis() / 1000;
   char ut[24];
   snprintf(ut, sizeof(ut), "%lud %luh %lum", up / 86400, (up % 86400) / 3600, (up % 3600) / 60);
-  String bloomStr = bloomFilter ? (String(bloomBits / 8 / 1024) + " KB") : String("off");
+  String bloomStr = "off";
 
   String j = "{\"ip\":\"" + WiFi.localIP().toString() + "\",\"blocked\":" + totalBlocked +
-             ",\"allowed\":" + totalAllowed + ",\"domains\":" + numHashes +
+             ",\"allowed\":" + totalAllowed + ",\"domains\":0" +
              ",\"rssi\":" + WiFi.RSSI() + ",\"temp\":" + String(temperatureRead(), 1) +
              ",\"heap\":" + ESP.getFreeHeap() + ",\"uptime\":\"" + ut + "\"" +
              ",\"bloom\":\"" + jesc(bloomStr) + "\",\"pending\":" + pendingCount +
@@ -991,68 +848,6 @@ static void handleSetPass()
     return;
   }
   saveAuth(newPass);
-  web.send(200, "text/plain", "ok");
-}
-
-static void handleBan()
-{
-  if (!checkAuth())
-  {
-    requireAuth();
-    return;
-  }
-  if (!checkToken())
-  {
-    web.send(403, "text/plain", "bad token");
-    return;
-  }
-  IPAddress ip;
-  if (ip.fromString(web.arg("ip")))
-  {
-    uint32_t ipraw = (uint32_t)ip;
-    Dev *c = getClient(ipraw);
-    if (c)
-    {
-      c->banned = !c->banned;
-      if (c->banned)
-        addBannedIP(ipraw);
-      else
-        removeBannedIP(ipraw);
-      saveBanned();
-    }
-  }
-  web.send(200, "text/plain", "ok");
-}
-
-static void handleAddBlock()
-{
-  if (!checkAuth())
-  {
-    requireAuth();
-    return;
-  }
-  if (!checkToken())
-  {
-    web.send(403, "text/plain", "bad token");
-    return;
-  }
-  addCustom(web.arg("d"));
-  web.send(200, "text/plain", "ok");
-}
-
-static void handleUnblock()
-{
-  if (!checkAuth())
-  {
-    requireAuth();
-    return;
-  }
-  if (!checkToken())
-  {
-    web.send(403, "text/plain", "bad token");
-    return;
-  }
-  removeCustom(web.arg("d"));
   web.send(200, "text/plain", "ok");
 }
 
@@ -1108,168 +903,7 @@ static void handleSetWifi()
   ESP.restart();
 }
 
-// ---- blocklist swap ----
-static void loadBloomFromBlocklist(File &f)
-{
-  if (bloomFilter)
-  {
-    free(bloomFilter);
-    bloomFilter = nullptr;
-  }
-  bloomBits = 0;
-  bloomK = 0;
-  if (!f)
-    return;
-  uint8_t hdr[BL_HEADER_SIZE];
-  f.seek(0);
-  if (f.read(hdr, BL_HEADER_SIZE) != BL_HEADER_SIZE)
-    return;
-  if (memcmp(hdr, BL_MAGIC, 4) != 0)
-  {
-    LOGN("[bl] bad magic");
-    return;
-  }
-  if (hdr[4] != BL_VERSION)
-  {
-    LOGN("[bl] wrong version");
-    return;
-  }
-  if (hdr[5] != HASH_BYTES)
-  {
-    LOGN("[bl] wrong hash_bytes");
-    return;
-  }
-  numHashes = hdr[6] | (hdr[7] << 8) | (hdr[8] << 16) | (hdr[9] << 24);
-  bloomBits = hdr[10] | (hdr[11] << 8) | (hdr[12] << 16) | (hdr[13] << 24);
-  bloomK = hdr[14];
-  if (bloomBits > 0 && bloomK > 0)
-  {
-    size_t bloomBytes = (bloomBits + 7) / 8;
-    bloomFilter = (uint8_t *)malloc(bloomBytes);
-    if (bloomFilter)
-    {
-      f.read(bloomFilter, bloomBytes);
-      hashTableOffset = BL_HEADER_SIZE + bloomBytes;
-    }
-    else
-    {
-      LOGN("[bl] bloom malloc failed — running without bloom");
-      bloomBits = 0;
-      bloomK = 0;
-      hashTableOffset = BL_HEADER_SIZE;
-    }
-  }
-  else
-  {
-    hashTableOffset = BL_HEADER_SIZE;
-  }
-}
-
-static void reopenBlocklist()
-{
-  if (blocklist)
-    blocklist.close();
-  blocklist = LittleFS.open(BLOCKLIST_PATH, "r");
-  loadBloomFromBlocklist(blocklist);
-  if (blocklist)
-    LOG("[bl] %u domains, bloom %u bits k=%u\n", numHashes, bloomBits, bloomK);
-}
-
-static void beginBlocklistSwap()
-{
-  if (blocklist)
-    blocklist.close();
-  numHashes = 0;
-  if (bloomFilter)
-  {
-    free(bloomFilter);
-    bloomFilter = nullptr;
-  }
-  bloomBits = 0;
-  bloomK = 0;
-  LittleFS.remove(BLOCKLIST_PATH);
-  LittleFS.remove("/blocklist.new");
-}
-
-static bool commitNewBlocklist()
-{
-  File f = LittleFS.open("/blocklist.new", "r");
-  size_t sz = f ? f.size() : 0;
-  if (f)
-    f.close();
-  bool ok = false;
-  if (sz >= BL_HEADER_SIZE)
-  {
-    File chk = LittleFS.open("/blocklist.new", "r");
-    uint8_t hdr[BL_HEADER_SIZE];
-    if (chk.read(hdr, BL_HEADER_SIZE) == BL_HEADER_SIZE)
-    {
-      if (memcmp(hdr, BL_MAGIC, 4) == 0 && hdr[4] == BL_VERSION && hdr[5] == HASH_BYTES)
-      {
-        uint32_t nh = hdr[6] | (hdr[7] << 8) | (hdr[8] << 16) | (hdr[9] << 24);
-        uint32_t bb = hdr[10] | (hdr[11] << 8) | (hdr[12] << 16) | (hdr[13] << 24);
-        size_t expected = BL_HEADER_SIZE + (bb + 7) / 8 + (size_t)nh * HASH_BYTES;
-        if (sz == expected)
-          ok = true;
-      }
-    }
-    chk.close();
-  }
-  if (ok)
-    LittleFS.rename("/blocklist.new", BLOCKLIST_PATH);
-  else
-    LittleFS.remove("/blocklist.new");
-  reopenBlocklist();
-  return ok;
-}
-
-// ---- OTA blocklist update ----
-static bool upOk = false;
-static File upFile;
-
-static void handleUploadDone()
-{
-  web.send(upOk ? 200 : 500, "text/plain",
-           upOk ? "ok" : "rejected: invalid blocklist (bad magic/version/size)");
-}
-
-static void handleUpload()
-{
-  if (!checkAuth())
-  {
-    requireAuth();
-    return;
-  }
-  HTTPUpload &u = web.upload();
-  switch (u.status)
-  {
-  case UPLOAD_FILE_START:
-    upOk = false;
-    beginBlocklistSwap();
-    upFile = LittleFS.open("/blocklist.new", "w");
-    LOG("[ota] receiving %s\n", u.filename.c_str());
-    break;
-  case UPLOAD_FILE_WRITE:
-    if (upFile)
-      upFile.write(u.buf, u.currentSize);
-    break;
-  case UPLOAD_FILE_END:
-    if (upFile)
-      upFile.close();
-    upOk = commitNewBlocklist();
-    LOG("[ota] %s -> %u domains\n", upOk ? "OK" : "REJECTED", numHashes);
-    break;
-  case UPLOAD_FILE_ABORTED:
-    if (upFile)
-      upFile.close();
-    LittleFS.remove("/blocklist.new");
-    reopenBlocklist();
-    LOGN("[ota] aborted");
-    break;
-  }
-}
-
-// ---- remote blocklist auto-update ----
+// ---- remote config ----
 static void loadUpdateCfg()
 {
   File f = LittleFS.open("/update.cfg", "r");
@@ -1298,72 +932,9 @@ static void saveUpdateCfg()
 
 static bool fetchBlocklist(String url)
 {
-  url.trim();
-  if (!url.length())
-  {
-    updateStatus = "no url set";
-    return false;
-  }
-  LOG("[remote] GET %s\n", url.c_str());
-  WiFiClientSecure cs;
-  WiFiClient cl;
-  HTTPClient http;
-  http.setTimeout(20000);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  bool https = url.startsWith("https");
-  if (!(https ? http.begin(cs, url) : http.begin(cl, url)))
-  {
-    updateStatus = "begin failed";
-    return false;
-  }
-  int code = http.GET();
-  if (code != HTTP_CODE_OK)
-  {
-    http.end();
-    updateStatus = "HTTP " + String(code);
-    LOG("[remote] %s\n", updateStatus.c_str());
-    return false;
-  }
-  beginBlocklistSwap();
-  File f = LittleFS.open("/blocklist.new", "w");
-  if (!f)
-  {
-    http.end();
-    updateStatus = "fs open failed";
-    reopenBlocklist();
-    return false;
-  }
-  WiFiClient *stream = http.getStreamPtr();
-  int len = http.getSize();
-  uint8_t b[1024];
-  size_t total = 0;
-  uint32_t idle = millis();
-  while (http.connected() && (len < 0 || (int)total < len))
-  {
-    size_t avail = stream->available();
-    if (avail)
-    {
-      int n = stream->readBytes(b, avail > sizeof(b) ? sizeof(b) : avail);
-      if (n > 0)
-      {
-        f.write(b, n);
-        total += n;
-        idle = millis();
-      }
-    }
-    else
-    {
-      if (millis() - idle > 15000)
-        break;
-      delay(2);
-    }
-  }
-  f.close();
-  http.end();
-  bool ok = commitNewBlocklist();
-  updateStatus = ok ? ("ok: " + String(numHashes) + " domains") : ("bad data (" + String(total) + "B)");
-  LOG("[remote] %s\n", updateStatus.c_str());
-  return ok;
+  (void)url;
+  updateStatus = "disabled";
+  return false;
 }
 
 // ---- firmware OTA ----
@@ -1618,11 +1189,11 @@ void setup()
 
   loadAuth();
   loadCustom();
-  loadBanned();
+  // loadBanned();
   loadUpdateCfg();
   loadDhcpCfg();
-  reopenBlocklist();
-  LOG("[cfg] custom:%d banned:%d auth:%s\n", numCustom, numBanned, authPassword.c_str());
+  // reopenBlocklist();
+  LOG("[cfg] custom:%d auth:%s\n", numCustom, authPassword.c_str());
   LOGN("[cfg] dashboard password: " + authPassword);
 
   if (!connectWiFi())
@@ -1645,10 +1216,10 @@ void setup()
   web.on("/", handleRoot);
   web.on("/stats.json", handleStats);
   web.on("/setpass", handleSetPass);
-  web.on("/ban", handleBan);
-  web.on("/addblock", handleAddBlock);
-  web.on("/unblock", handleUnblock);
-  web.on("/upload", HTTP_POST, handleUploadDone, handleUpload);
+  // web.on("/ban", handleBan);
+  // web.on("/addblock", handleAddBlock);
+  // web.on("/unblock", handleUnblock);
+  // web.on("/upload", HTTP_POST, handleUploadDone, handleUpload);
   web.on("/update", HTTP_POST, handleFwUpdateDone, handleFwUpload);
   web.on("/fetchnow", []()
          {
@@ -1694,19 +1265,4 @@ void loop()
 
   if (pendingCount > 0)
     lastDnsActivityMs = millis();
-
-  if (updateUrl.length() && numHashes > 0)
-  {
-    uint32_t now = millis();
-    if (lastCheckMs == 0)
-    {
-      lastCheckMs = now;
-    }
-    else if ((now - lastCheckMs) >= updateIntervalH * 3600000UL &&
-             (now - lastDnsActivityMs) >= REMOTE_FETCH_IDLE_MS)
-    {
-      lastCheckMs = now;
-      fetchBlocklist(updateUrl);
-    }
-  }
 }
