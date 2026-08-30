@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { StatsResponse, Profile } from './interfaces';
 import { fetchApi } from './api';
 import ClientTable from './ClientTable';
+import { TIMEZONES } from './SettingsView';
 
 export function parseMinToString(m: number): string {
   if (m === undefined || m === null || m < 0 || isNaN(m)) return '';
@@ -93,10 +94,6 @@ export default function DashboardView() {
     }
   };
 
-  const handleTimezoneBlur = () => {
-    handleSaveProfiles(timezone, profiles);
-  };
-
   const updateProfileField = <K extends keyof Profile>(
     index: number,
     field: K,
@@ -158,15 +155,18 @@ export default function DashboardView() {
         <h3 className="text-lg font-medium text-gray-900 mb-3">Timezone Configuration</h3>
         <div className="max-w-xs">
           <label className="block text-xs font-medium text-gray-700 mb-1">Timezone (TZ String)</label>
-          <input
-            type="text"
+          <select
             value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            onBlur={handleTimezoneBlur}
-            placeholder="e.g. UTC-5 or EST5EDT"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">Saves automatically when field loses focus.</p>
+            onChange={(e) => {
+              setTimezone(e.target.value);
+              handleSaveProfiles(e.target.value, profiles);
+            }}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+          >
+            <option value="">Select Timezone...</option>
+            {TIMEZONES.map(tz => <option key={tz.val} value={tz.val}>{tz.label}</option>)}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">Saves automatically when selection changes.</p>
         </div>
       </div>
 
