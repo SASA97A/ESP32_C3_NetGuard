@@ -845,6 +845,8 @@ static void handleRoot()
   web.send_P(200, "text/html", PAGE);
 }
 
+static void saveConfig();
+
 static void handleStats()
 {
   if (!checkAuth())
@@ -855,36 +857,144 @@ static void handleStats()
   uint32_t up = millis() / 1000;
   char ut[24];
   snprintf(ut, sizeof(ut), "%lud %luh %lum", up / 86400, (up % 86400) / 3600, (up % 3600) / 60);
-  String bloomStr = "off";
 
-  String j = "{\"ip\":\"" + WiFi.localIP().toString() + "\",\"blocked\":" + totalBlocked +
-             ",\"allowed\":" + totalAllowed + ",\"domains\":0" +
+  String j = "{\"ip\":\"" + WiFi.localIP().toString() + "\"" +
              ",\"rssi\":" + WiFi.RSSI() + ",\"temp\":" + String(temperatureRead(), 1) +
              ",\"heap\":" + ESP.getFreeHeap() + ",\"uptime\":\"" + ut + "\"" +
-             ",\"bloom\":\"" + jesc(bloomStr) + "\",\"pending\":" + pendingCount +
              ",\"dhcp\":" + (dhcpEnabled ? "true" : "false") +
              ",\"defpwd\":" + (authPassword == DEFAULT_PASS ? "true" : "false") +
              ",\"wifi\":\"" + jesc(WiFi.SSID()) + "\"" +
              ",\"token\":\"" + jesc(authToken) + "\"" +
-             ",\"upurl\":\"" + jesc(updateUrl) + "\",\"upiv\":" + updateIntervalH +
-             ",\"upstat\":\"" + jesc(updateStatus) + "\"" +
-             ",\"clients\":[";
+             ",\"timezone\":\"" + jesc(timezoneStr) + "\"" +
+             ",\"profiles\":[";
+  for (int i = 0; i < 3; i++)
+  {
+    j += (i ? "," : "");
+    j += "{\"start\":" + String(profiles[i].startBedtimeMinutes) +
+         ",\"end\":" + String(profiles[i].endBedtimeMinutes) +
+         ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"}";
+  }
+  j += "],\"clients\":[";
   for (int i = 0; i < numClients; i++)
   {
     Dev &c = clients[i];
     IPAddress ip(c.ip);
+    bool blocked = isTimeBlocked(c.currentProfileId);
     j += (i ? "," : "");
     j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + jesc(c.mac) +
-         "\",\"profile\":" + String(c.currentProfileId) + "}";
-  }
-  j += "],\"custom\":[";
-  for (int i = 0; i < numCustom; i++)
-  {
-    j += (i ? "," : "");
-    j += "\"" + jesc(customDom[i]) + "\"";
+         "\",\"profile\":" + String(c.currentProfileId) +
+         ",\"blocked\":" + (blocked ? "true" : "false") + "}";
   }
   j += "]}";
   web.send(200, "application/json", j);
+}
+
+static void handleSaveProfiles()
+{
+  if (!checkAuth())
+  {
+    requireAuth();
+    return;
+  }
+  if (!checkToken())
+  {
+    web.send(403, "text/plain", "bad token");
+    return;
+  }
+
+  if (!web.hasArg("plain"))
+  {
+    web.send(400, "text/plain", "missing body");
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, web.arg("plain"));
+  if (err)
+  {
+    web.send(400, "text/plain", "invalid json");
+    return;
+  }
+
+  if (!doc["timezone"].isNull())
+  {
+    timezoneStr = doc["timezone"].as<String>();
+    setupTime();
+  }
+
+  if (doc["profiles"].is<JsonArray>())
+  {
+    JsonArray profArray = doc["profiles"].as<JsonArray>();
+    int idx = 0;
+    for (JsonObject p : profArray)
+    {
+      if (idx >= 3)
+        break;
+      if (!p["start"].isNull())
+        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+      if (!p["end"].isNull())
+        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+      if (!p["dns"].isNull())
+      {
+        IPAddress ip;
+        if (ip.fromString(p["dns"].as<const char *>()))
+        {
+          profiles[idx].upstreamDNS = ip;
+        }
+      }
+      idx++;
+    }
+  }
+
+  saveConfig();
+  web.send(200, "text/plain", "ok");
+}
+
+static void handleAssignProfile()
+{
+  if (!checkAuth())
+  {
+    requireAuth();
+    return;
+  }
+  if (!checkToken())
+  {
+    web.send(403, "text/plain", "bad token");
+    return;
+  }
+
+  if (!web.hasArg("mac") || !web.hasArg("profile"))
+  {
+    web.send(400, "text/plain", "missing parameters");
+    return;
+  }
+
+  String mac = web.arg("mac");
+  uint8_t pid = web.arg("profile").toInt();
+  if (pid > 2)
+    pid = 0;
+
+  bool found = false;
+  for (int i = 0; i < numClients; i++)
+  {
+    if (clients[i].mac.equalsIgnoreCase(mac))
+    {
+      clients[i].currentProfileId = pid;
+      found = true;
+      break;
+    }
+  }
+  if (!found && numClients < MAX_CLIENTS)
+  {
+    clients[numClients].ip = 0;
+    clients[numClients].mac = mac;
+    clients[numClients].currentProfileId = pid;
+    clients[numClients].lastSeen = millis();
+    numClients++;
+  }
+
+  saveConfig();
+  web.send(200, "text/plain", "ok");
 }
 
 static void handleSetPass()
@@ -1391,6 +1501,8 @@ void setup()
   web.collectHeaders(COLLECTED_HEADERS, sizeof(COLLECTED_HEADERS) / sizeof(char *));
   web.on("/", handleRoot);
   web.on("/stats.json", handleStats);
+  web.on("/api/profiles", HTTP_POST, handleSaveProfiles);
+  web.on("/api/assign", handleAssignProfile);
   web.on("/setpass", handleSetPass);
   // web.on("/ban", handleBan);
   // web.on("/addblock", handleAddBlock);
