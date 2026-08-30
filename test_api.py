@@ -4,7 +4,7 @@ import json
 import base64
 import sys
 
-ESP32_URL = "http://c3adblock.local"
+ESP32_URL = "http://192.168.1.164"
 
 if len(sys.argv) < 2:
     print("Usage: python test_api.py [password]")
