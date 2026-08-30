@@ -195,6 +195,7 @@ struct Dev
   String mac;
   String friendlyName;
   uint8_t currentProfileId; // Profile index
+  bool manualBlock;
   uint32_t lastSeen;
 };
 Dev clients[MAX_CLIENTS];
@@ -261,6 +262,7 @@ static Dev *getClient(uint32_t ip)
   c->ip = ip;
   c->mac = mac;
   c->currentProfileId = 0;
+  c->manualBlock = false;
   c->lastSeen = millis();
   return c;
 }
@@ -421,9 +423,12 @@ static void handleDns()
 
   Dev *c = getClient((uint32_t)cip);
   uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
-  if (pid >= numProfiles) pid = 0;
+  if (pid > 2) pid = 0;
 
-  bool blocked = isTimeBlocked(pid);
+  bool blocked = c ? c->manualBlock : false;
+  if (!blocked) {
+    blocked = isTimeBlocked(pid);
+  }
 
   if (blocked)
   {
@@ -542,9 +547,12 @@ static void handleTcpDns()
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
   uint8_t pid = c ? c->currentProfileId : 0;
-  if (pid >= numProfiles) pid = 0;
+  if (pid > 2) pid = 0;
 
-  bool blocked = isTimeBlocked(pid);
+  bool blocked = c ? c->manualBlock : false;
+  if (!blocked) {
+    blocked = isTimeBlocked(pid);
+  }
   IPAddress pDNS = profiles[pid].upstreamDNS;
   if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
 
@@ -884,12 +892,13 @@ static void handleStats()
   {
     Dev &c = clients[i];
     IPAddress ip(c.ip);
-    bool blocked = isTimeBlocked(c.currentProfileId);
+    bool blocked = c.manualBlock || isTimeBlocked(c.currentProfileId);
     j += (i ? "," : "");
     j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + jesc(c.mac) +
          "\",\"name\":\"" + jesc(c.friendlyName) +
-         "\",\"profile\":" + String(c.currentProfileId) +
-         ",\"blocked\":" + (blocked ? "true" : "false") + "}";
+         "\",\"profile\":" + String(c.currentProfileId);
+    j += ",\"manualBlock\":" + (c.manualBlock ? String("true") : String("false"));
+    j += ",\"blocked\":" + (blocked ? String("true") : String("false")) + "}";
   }
   j += "]}";
   web.send(200, "application/json", j);
@@ -998,6 +1007,10 @@ static void handleAssignProfile()
       {
         clients[i].friendlyName = web.arg("name");
       }
+      if (web.hasArg("block"))
+      {
+        clients[i].manualBlock = (web.arg("block") == "true");
+      }
       found = true;
       break;
     }
@@ -1008,6 +1021,7 @@ static void handleAssignProfile()
     clients[numClients].mac = mac;
     clients[numClients].friendlyName = web.hasArg("name") ? web.arg("name") : "";
     clients[numClients].currentProfileId = pid;
+    clients[numClients].manualBlock = web.hasArg("block") ? (web.arg("block") == "true") : false;
     clients[numClients].lastSeen = millis();
     numClients++;
   }
@@ -1410,6 +1424,7 @@ static void saveConfig()
       JsonObject ms = doc["macs"][clients[i].mac].to<JsonObject>();
       ms["profile"] = clients[i].currentProfileId;
       ms["name"] = clients[i].friendlyName;
+      ms["manual"] = clients[i].manualBlock;
     }
   }
 
@@ -1485,6 +1500,7 @@ static void loadConfig()
       String mac = kv.key().c_str();
       uint8_t pid = 0;
       String fname = "";
+      bool manBlocked = false;
       if (kv.value().is<JsonObject>())
       {
         JsonObject valObj = kv.value().as<JsonObject>();
@@ -1492,6 +1508,8 @@ static void loadConfig()
           pid = valObj["profile"].as<uint8_t>();
         if (!valObj["name"].isNull())
           fname = valObj["name"].as<String>();
+        if (!valObj["manual"].isNull())
+          manBlocked = valObj["manual"].as<bool>();
       }
       else
       {
@@ -1505,6 +1523,7 @@ static void loadConfig()
         {
           clients[i].currentProfileId = pid;
           clients[i].friendlyName = fname;
+          clients[i].manualBlock = manBlocked;
           found = true;
           break;
         }
@@ -1515,6 +1534,7 @@ static void loadConfig()
         clients[numClients].mac = mac;
         clients[numClients].friendlyName = fname;
         clients[numClients].currentProfileId = pid;
+        clients[numClients].manualBlock = manBlocked;
         clients[numClients].lastSeen = 0;
         numClients++;
       }
