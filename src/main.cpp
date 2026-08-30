@@ -424,7 +424,10 @@ static void handleDns()
   size_t dl = parseQuery(dnsBuf, qlen, domain, &qtype, &qend);
 
   Dev *c = getClient((uint32_t)cip);
-  bool blocked = false;
+  uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
+  if (pid > 2) pid = 0;
+
+  bool blocked = isTimeBlocked(pid);
 
   if (blocked)
   {
@@ -436,6 +439,9 @@ static void handleDns()
   }
   else
   {
+    IPAddress pDNS = profiles[pid].upstreamDNS;
+    if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
+
     int slot = findFreeSlot();
     if (slot < 0)
       return;
@@ -448,7 +454,7 @@ static void handleDns()
     pending[slot].sentMs = millis();
     pending[slot].active = true;
     pendingCount++;
-    upstream.beginPacket(UPSTREAM, 53);
+    upstream.beginPacket(pDNS, 53);
     upstream.write(dnsBuf, qlen);
     upstream.endPacket();
     totalAllowed++;
@@ -460,12 +466,12 @@ WiFiServer tcpDnsServer(DNS_PORT);
 WiFiClient tcpDnsClient;
 static uint8_t tcpBuf[DNS_BUF_SIZE];
 
-static int forwardUpstreamSync(uint8_t *pkt, int qlen)
+static int forwardUpstreamSync(uint8_t *pkt, int qlen, IPAddress pDNS)
 {
   uint16_t origID = (pkt[0] << 8) | pkt[1];
   pkt[0] = 0xFF;
   pkt[1] = 0xFE;
-  tcpUpstream.beginPacket(UPSTREAM, 53);
+  tcpUpstream.beginPacket(pDNS, 53);
   tcpUpstream.write(pkt, qlen);
   tcpUpstream.endPacket();
   pkt[0] = (origID >> 8) & 0xFF;
@@ -539,9 +545,14 @@ static void handleTcpDns()
   int qend = total;
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
-  bool blocked = false;
+  uint8_t pid = c ? c->currentProfileId : 0;
+  if (pid > 2) pid = 0;
 
-  int rlen = blocked ? buildBlocked(tcpBuf, qend, qtype) : forwardUpstreamSync(tcpBuf, total);
+  bool blocked = isTimeBlocked(pid);
+  IPAddress pDNS = profiles[pid].upstreamDNS;
+  if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
+
+  int rlen = blocked ? buildBlocked(tcpBuf, qend, qtype) : forwardUpstreamSync(tcpBuf, total, pDNS);
   if (blocked)
     totalBlocked++;
   else
