@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WiFiServer.h>
@@ -173,13 +174,22 @@ static void removeCustom(String d)
     }
 }
 
-// ---- client table ----
+// ---- profiles & clients ----
+struct Profile {
+  int startBedtimeMinutes; // Minutes since midnight (e.g. 1260 for 21:00)
+  int endBedtimeMinutes;   // (e.g. 420 for 07:00)
+  IPAddress upstreamDNS;
+};
+
+Profile profiles[3]; // 0=Default, 1=Kids, 2=Adults
+String timezoneStr = "UTC0";
+
 struct Dev
 {
   uint32_t ip;
-  uint8_t mac[6];
-  uint32_t blocked, allowed, lastSeen;
-  bool banned;
+  String mac;
+  uint8_t currentProfileId; // 0, 1, or 2
+  uint32_t lastSeen;
 };
 Dev clients[MAX_CLIENTS];
 int numClients = 0;
@@ -208,6 +218,26 @@ static Dev *getClient(uint32_t ip)
       clients[i].lastSeen = millis();
       return &clients[i];
     }
+
+  uint8_t mbuf[6];
+  getMac(ip, mbuf);
+  char macBuf[18];
+  snprintf(macBuf, sizeof(macBuf), "%02x:%02x:%02x:%02x:%02x:%02x", mbuf[0], mbuf[1], mbuf[2], mbuf[3], mbuf[4], mbuf[5]);
+  String mac = String(macBuf);
+
+  if (mac.length() > 0 && mac != "00:00:00:00:00:00")
+  {
+    for (int i = 0; i < numClients; i++)
+    {
+      if (clients[i].mac.equalsIgnoreCase(mac))
+      {
+        clients[i].ip = ip;
+        clients[i].lastSeen = millis();
+        return &clients[i];
+      }
+    }
+  }
+
   int slot = numClients;
   if (numClients >= MAX_CLIENTS)
   {
@@ -223,10 +253,9 @@ static Dev *getClient(uint32_t ip)
   }
   Dev *c = &clients[slot];
   c->ip = ip;
-  c->blocked = c->allowed = 0;
+  c->mac = mac;
+  c->currentProfileId = 0;
   c->lastSeen = millis();
-  c->banned = false;
-  getMac(ip, c->mac);
   return c;
 }
 
@@ -370,8 +399,6 @@ static void handleDns()
   {
     int rlen = buildBlocked(dnsBuf, qend, qtype);
     totalBlocked++;
-    if (c)
-      c->blocked++;
     dnsServer.beginPacket(cip, cport);
     dnsServer.write(dnsBuf, rlen);
     dnsServer.endPacket();
@@ -394,8 +421,6 @@ static void handleDns()
     upstream.write(dnsBuf, qlen);
     upstream.endPacket();
     totalAllowed++;
-    if (c)
-      c->allowed++;
   }
 }
 
@@ -490,13 +515,6 @@ static void handleTcpDns()
     totalBlocked++;
   else
     totalAllowed++;
-  if (c)
-  {
-    if (blocked)
-      c->blocked++;
-    else
-      c->allowed++;
-  }
 
   if (rlen > 0)
   {
@@ -814,9 +832,8 @@ static void handleStats()
     Dev &c = clients[i];
     IPAddress ip(c.ip);
     j += (i ? "," : "");
-    j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + macStr(c.mac) +
-         "\",\"blocked\":" + c.blocked + ",\"allowed\":" + c.allowed +
-         ",\"banned\":" + (c.banned ? "true" : "false") + "}";
+    j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + jesc(c.mac) +
+         "\",\"profile\":" + String(c.currentProfileId) + "}";
   }
   j += "],\"custom\":[";
   for (int i = 0; i < numCustom; i++)
@@ -1177,6 +1194,122 @@ static void saveDhcpCfg()
   f.close();
 }
 
+// ---- profile & client config persistence ----
+static void initDefaultProfiles()
+{
+  profiles[0] = {-1, -1, IPAddress(9, 9, 9, 9)};
+  profiles[1] = {1260, 420, IPAddress(1, 1, 1, 3)};
+  profiles[2] = {-1, -1, IPAddress(1, 1, 1, 1)};
+  timezoneStr = "UTC0";
+}
+
+static void saveConfig()
+{
+  JsonDocument doc;
+  doc["timezone"] = timezoneStr;
+
+  for (int i = 0; i < 3; i++)
+  {
+    doc["profiles"][i]["start"] = profiles[i].startBedtimeMinutes;
+    doc["profiles"][i]["end"] = profiles[i].endBedtimeMinutes;
+    doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
+  }
+
+  for (int i = 0; i < numClients; i++)
+  {
+    if (clients[i].mac.length() > 0)
+    {
+      doc["macs"][clients[i].mac] = clients[i].currentProfileId;
+    }
+  }
+
+  File f = LittleFS.open("/config.json", "w");
+  if (!f)
+    return;
+  serializeJson(doc, f);
+  f.close();
+}
+
+static void loadConfig()
+{
+  initDefaultProfiles();
+
+  File f = LittleFS.open("/config.json", "r");
+  if (!f)
+  {
+    saveConfig();
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, f);
+  f.close();
+
+  if (error)
+  {
+    LOGN("[cfg] Failed to parse /config.json, saving defaults");
+    saveConfig();
+    return;
+  }
+
+  if (!doc["timezone"].isNull())
+  {
+    timezoneStr = doc["timezone"].as<String>();
+  }
+
+  if (doc["profiles"].is<JsonArray>())
+  {
+    JsonArray profArray = doc["profiles"].as<JsonArray>();
+    int idx = 0;
+    for (JsonObject p : profArray)
+    {
+      if (idx >= 3)
+        break;
+      if (!p["start"].isNull())
+        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+      if (!p["end"].isNull())
+        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+      if (!p["dns"].isNull())
+      {
+        IPAddress ip;
+        if (ip.fromString(p["dns"].as<const char *>()))
+        {
+          profiles[idx].upstreamDNS = ip;
+        }
+      }
+      idx++;
+    }
+  }
+
+  if (doc["macs"].is<JsonObject>())
+  {
+    JsonObject macsObj = doc["macs"].as<JsonObject>();
+    for (JsonPair kv : macsObj)
+    {
+      String mac = kv.key().c_str();
+      uint8_t pid = kv.value().as<uint8_t>();
+      bool found = false;
+      for (int i = 0; i < numClients; i++)
+      {
+        if (clients[i].mac.equalsIgnoreCase(mac))
+        {
+          clients[i].currentProfileId = pid;
+          found = true;
+          break;
+        }
+      }
+      if (!found && numClients < MAX_CLIENTS)
+      {
+        clients[numClients].ip = 0;
+        clients[numClients].mac = mac;
+        clients[numClients].currentProfileId = pid;
+        clients[numClients].lastSeen = 0;
+        numClients++;
+      }
+    }
+  }
+}
+
 // ---- setup / loop ----
 void setup()
 {
@@ -1189,7 +1322,7 @@ void setup()
 
   loadAuth();
   loadCustom();
-  // loadBanned();
+  loadConfig();
   loadUpdateCfg();
   loadDhcpCfg();
   // reopenBlocklist();
