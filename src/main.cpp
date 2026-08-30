@@ -179,19 +179,22 @@ static void removeCustom(String d)
 
 // ---- profiles & clients ----
 struct Profile {
+  String name;
   int startBedtimeMinutes; // Minutes since midnight (e.g. 1260 for 21:00)
   int endBedtimeMinutes;   // (e.g. 420 for 07:00)
   IPAddress upstreamDNS;
 };
 
-Profile profiles[3]; // 0=Default, 1=Kids, 2=Adults
+Profile profiles[10]; // dynamic up to 10 profiles
+int numProfiles = 3;
 String timezoneStr = "UTC0";
 
 struct Dev
 {
   uint32_t ip;
   String mac;
-  uint8_t currentProfileId; // 0, 1, or 2
+  String friendlyName;
+  uint8_t currentProfileId; // Profile index
   uint32_t lastSeen;
 };
 Dev clients[MAX_CLIENTS];
@@ -330,7 +333,7 @@ void setupTime() {
 }
 
 bool isTimeBlocked(uint8_t profileId) {
-  if (profileId > 2) return false;
+  if (profileId >= numProfiles) return false;
   
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo, 10)) return false; // Fail open if no time
@@ -418,7 +421,7 @@ static void handleDns()
 
   Dev *c = getClient((uint32_t)cip);
   uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
-  if (pid > 2) pid = 0;
+  if (pid >= numProfiles) pid = 0;
 
   bool blocked = isTimeBlocked(pid);
 
@@ -539,7 +542,7 @@ static void handleTcpDns()
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
   uint8_t pid = c ? c->currentProfileId : 0;
-  if (pid > 2) pid = 0;
+  if (pid >= numProfiles) pid = 0;
 
   bool blocked = isTimeBlocked(pid);
   IPAddress pDNS = profiles[pid].upstreamDNS;
@@ -964,7 +967,7 @@ static void handleAssignProfile()
 
   String mac = web.arg("mac");
   uint8_t pid = web.arg("profile").toInt();
-  if (pid > 2)
+  if (pid >= numProfiles)
     pid = 0;
 
   bool found = false;
@@ -1342,9 +1345,22 @@ static void saveDhcpCfg()
 // ---- profile & client config persistence ----
 static void initDefaultProfiles()
 {
-  profiles[0] = {-1, -1, IPAddress(9, 9, 9, 9)};
-  profiles[1] = {1260, 420, IPAddress(1, 1, 1, 3)};
-  profiles[2] = {-1, -1, IPAddress(1, 1, 1, 1)};
+  profiles[0].name = "Default";
+  profiles[0].startBedtimeMinutes = -1;
+  profiles[0].endBedtimeMinutes = -1;
+  profiles[0].upstreamDNS = IPAddress(9, 9, 9, 9);
+
+  profiles[1].name = "Kids";
+  profiles[1].startBedtimeMinutes = 1260;
+  profiles[1].endBedtimeMinutes = 420;
+  profiles[1].upstreamDNS = IPAddress(1, 1, 1, 3);
+
+  profiles[2].name = "Adults";
+  profiles[2].startBedtimeMinutes = -1;
+  profiles[2].endBedtimeMinutes = -1;
+  profiles[2].upstreamDNS = IPAddress(1, 1, 1, 1);
+
+  numProfiles = 3;
   timezoneStr = "UTC0";
 }
 
@@ -1353,8 +1369,9 @@ static void saveConfig()
   JsonDocument doc;
   doc["timezone"] = timezoneStr;
 
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < numProfiles; i++)
   {
+    doc["profiles"][i]["name"] = profiles[i].name;
     doc["profiles"][i]["start"] = profiles[i].startBedtimeMinutes;
     doc["profiles"][i]["end"] = profiles[i].endBedtimeMinutes;
     doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
@@ -1364,7 +1381,9 @@ static void saveConfig()
   {
     if (clients[i].mac.length() > 0)
     {
-      doc["macs"][clients[i].mac] = clients[i].currentProfileId;
+      JsonObject ms = doc["macs"][clients[i].mac].to<JsonObject>();
+      ms["profile"] = clients[i].currentProfileId;
+      ms["name"] = clients[i].friendlyName;
     }
   }
 
@@ -1408,8 +1427,10 @@ static void loadConfig()
     int idx = 0;
     for (JsonObject p : profArray)
     {
-      if (idx >= 3)
+      if (idx >= 10)
         break;
+      if (!p["name"].isNull())
+        profiles[idx].name = p["name"].as<String>();
       if (!p["start"].isNull())
         profiles[idx].startBedtimeMinutes = p["start"].as<int>();
       if (!p["end"].isNull())
@@ -1424,6 +1445,10 @@ static void loadConfig()
       }
       idx++;
     }
+    if (idx > 0)
+    {
+      numProfiles = idx;
+    }
   }
 
   if (doc["macs"].is<JsonObject>())
@@ -1432,13 +1457,28 @@ static void loadConfig()
     for (JsonPair kv : macsObj)
     {
       String mac = kv.key().c_str();
-      uint8_t pid = kv.value().as<uint8_t>();
+      uint8_t pid = 0;
+      String fname = "";
+      if (kv.value().is<JsonObject>())
+      {
+        JsonObject valObj = kv.value().as<JsonObject>();
+        if (!valObj["profile"].isNull())
+          pid = valObj["profile"].as<uint8_t>();
+        if (!valObj["name"].isNull())
+          fname = valObj["name"].as<String>();
+      }
+      else
+      {
+        pid = kv.value().as<uint8_t>();
+      }
+
       bool found = false;
       for (int i = 0; i < numClients; i++)
       {
         if (clients[i].mac.equalsIgnoreCase(mac))
         {
           clients[i].currentProfileId = pid;
+          clients[i].friendlyName = fname;
           found = true;
           break;
         }
@@ -1447,6 +1487,7 @@ static void loadConfig()
       {
         clients[numClients].ip = 0;
         clients[numClients].mac = mac;
+        clients[numClients].friendlyName = fname;
         clients[numClients].currentProfileId = pid;
         clients[numClients].lastSeen = 0;
         numClients++;
