@@ -1,0 +1,13 @@
+# PlatformIO build output
+.pio/
+.vscode/
+
+# Generated blocklist (build it with tools/build_blocklist.py)
+data/blocklist.bin
+
+# WiFi credentials (copy src/secrets.example.h -> src/secrets.h)
+src/secrets.h
+
+# Backups / scratch
+*.bak
+tools/__pycache__/
