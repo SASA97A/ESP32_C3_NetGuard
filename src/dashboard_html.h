@@ -18,9 +18,14 @@ th{background:#21262d;color:#8b949e;font-weight:600}tr:hover td{background:#1c21
 .b{color:#f85149;font-weight:600}.a{color:#3fb950;font-weight:600}.tag{background:#30363d;border-radius:4px;padding:2px 8px;font-size:11px}
 button{background:#238636;color:#ffffff;border:1px solid #30363d;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer}
 button:hover{background:#2ea043}
+.btn-sec{background:#21262d;border:1px solid #30363d}
+.btn-sec:hover{background:#30363d}
+.btn-sm{padding:3px 8px;font-size:12px;border-radius:4px}
 h2{font-size:16px;color:#c9d1d9;margin:24px 0 12px;border-bottom:1px solid #21262d;padding-bottom:6px}
 .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(13,17,23,0.95);display:flex;align-items:center;justify-content:center;z-index:9999}
 .modal{background:#161b22;border:1px solid #f85149;padding:24px;border-radius:8px;max-width:360px;width:100%;box-sizing:border-box}
+.add-dev-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.add-dev-row .fg{flex:1;min-width:140px}
 </style></head><body>
 <div id=pwdModal class=modal-overlay style="display:none">
 <div class=modal>
@@ -43,44 +48,75 @@ h2{font-size:16px;color:#c9d1d9;margin:24px 0 12px;border-bottom:1px solid #2126
 </div>
 
 <h2>PROFILES</h2>
-<div class=cards>
-<div class=card>
-<h3>Default Profile</h3>
-<div class=form-group><label>Bedtime Start</label><input type=time id=p0_start></div>
-<div class=form-group><label>Bedtime End</label><input type=time id=p0_end></div>
-<div class=form-group><label>Upstream DNS IP</label><input id=p0_dns placeholder="9.9.9.9"></div>
-</div>
-<div class=card>
-<h3>Kids Profile</h3>
-<div class=form-group><label>Bedtime Start</label><input type=time id=p1_start></div>
-<div class=form-group><label>Bedtime End</label><input type=time id=p1_end></div>
-<div class=form-group><label>Upstream DNS IP</label><input id=p1_dns placeholder="1.1.1.3"></div>
-</div>
-<div class=card>
-<h3>Parent Profile</h3>
-<div class=form-group><label>Bedtime Start</label><input type=time id=p2_start></div>
-<div class=form-group><label>Bedtime End</label><input type=time id=p2_end></div>
-<div class=form-group><label>Upstream DNS IP</label><input id=p2_dns placeholder="1.1.1.1"></div>
-</div>
-</div>
+<div class=cards id=profCards></div>
 
-<div style="margin-bottom:24px">
-<button onclick=saveProfiles()>Save Profiles</button>
-<span id=saveMsg style="margin-left:12px;color:#8b949e;font-size:13px"></span>
+<div style="margin-bottom:24px;display:flex;align-items:center;gap:10px">
+<button type=button class=btn-sec onclick=addGroup()>Add New Group</button>
+<button type=button onclick=saveProfiles()>Save Profiles</button>
+<span id=saveMsg style="color:#8b949e;font-size:13px"></span>
 </div>
 
 <h2>CLIENT TABLE</h2>
 <table id=ct>
-<thead><tr><th>IP Address</th><th>MAC Address</th><th>Status</th><th>Profile Assignment</th></tr></thead>
+<thead><tr><th>Name</th><th>IP Address</th><th>MAC Address</th><th>Status</th><th>Profile Assignment</th></tr></thead>
 <tbody></tbody>
 </table>
+
+<div class=card style="margin-bottom:24px">
+<h3 style="margin-bottom:10px">Add Device Manually</h3>
+<div class=add-dev-row>
+<div class=fg><label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">MAC Address</label><input id=addMac placeholder="AA:BB:CC:DD:EE:FF"></div>
+<div class=fg><label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Friendly Name</label><input id=addName placeholder="Device Name"></div>
+<div class=fg><label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Dropdown Group</label><select id=addGroupSelect></select></div>
+<div><button type=button onclick=addDevice()>Add Device</button></div>
+</div>
+<div id=addDevMsg style="margin-top:8px;font-size:12px;color:#f85149"></div>
+</div>
 </div>
 
 <script>
 let T='';
+let currentProfiles=[];
+let lastClients=[];
+
 function mut(p){return p+(p.includes('?')?'&':'?')+'token='+T}
 function minToTime(m){if(m===null||m===undefined||m<0)return'';let h=Math.floor(m/60).toString().padStart(2,'0'),min=(m%60).toString().padStart(2,'0');return h+':'+min;}
 function timeToMin(t){if(!t)return -1;let p=t.split(':');if(p.length!==2)return -1;return parseInt(p[0],10)*60+parseInt(p[1],10);}
+function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+function renderProfiles(){
+  let el=document.getElementById('profCards');
+  if(!el)return;
+  el.innerHTML=currentProfiles.map((p,i)=>`
+    <div class=card>
+      <h3>Group ${i}</h3>
+      <div class=form-group><label>Group Name</label><input class=p_name value="${escHtml(p.name)}"></div>
+      <div class=form-group><label>Bedtime Start</label><input type=time class=p_start value="${minToTime(p.start)}"></div>
+      <div class=form-group><label>Bedtime End</label><input type=time class=p_end value="${minToTime(p.end)}"></div>
+      <div class=form-group><label>Upstream DNS IP</label><input class=p_dns placeholder="9.9.9.9" value="${escHtml(p.dns)}"></div>
+    </div>
+  `).join('');
+}
+
+function readProfilesFromDOM(){
+  let cards=document.querySelectorAll('#profCards .card');
+  if(cards.length===0)return;
+  currentProfiles=[];
+  cards.forEach(c=>{
+    currentProfiles.push({
+      name: c.querySelector('.p_name').value.trim(),
+      start: timeToMin(c.querySelector('.p_start').value),
+      end: timeToMin(c.querySelector('.p_end').value),
+      dns: c.querySelector('.p_dns').value.trim()
+    });
+  });
+}
+
+function addGroup(){
+  readProfilesFromDOM();
+  currentProfiles.push({name:'New Group',start:-1,end:-1,dns:''});
+  renderProfiles();
+}
 
 async function load(){
   try{
@@ -89,27 +125,37 @@ async function load(){
     if(s.defpwd){pwdModal.style.display='flex';return;}else{pwdModal.style.display='none';}
     host.textContent='@ '+(s.ip||'');
     if(document.activeElement!==tz) tz.value=s.timezone||'UTC0';
-    if(s.profiles && s.profiles.length>=3){
-      for(let i=0;i<3;i++){
-        let st=document.getElementById('p'+i+'_start'), en=document.getElementById('p'+i+'_end'), dn=document.getElementById('p'+i+'_dns');
-        if(document.activeElement!==st) st.value=minToTime(s.profiles[i].start);
-        if(document.activeElement!==en) en.value=minToTime(s.profiles[i].end);
-        if(document.activeElement!==dn) dn.value=s.profiles[i].dns||'';
+    if(s.profiles){
+      if(!profCards.contains(document.activeElement)){
+        currentProfiles=s.profiles;
+        renderProfiles();
+      }
+      if(document.activeElement!==addGroupSelect){
+        let curVal=addGroupSelect.value;
+        addGroupSelect.innerHTML=s.profiles.map((p,i)=>`<option value="${i}">${escHtml(p.name||('Group '+i))}</option>`).join('');
+        if(curVal) addGroupSelect.value=curVal;
       }
     }
     if(s.clients){
-      ct.tBodies[0].innerHTML=s.clients.map(c=>`<tr>
-        <td>${c.ip||'&mdash;'}</td>
-        <td><code>${c.mac}</code></td>
-        <td><span class="${c.blocked?'b':'a'}">${c.blocked?'BLOCKED':'ALLOWED'}</span></td>
-        <td>
-          <select style="width:auto" onchange="assignClient('${c.mac}',this.value)">
-            <option value="0" ${c.profile===0?'selected':''}>Default</option>
-            <option value="1" ${c.profile===1?'selected':''}>Kids</option>
-            <option value="2" ${c.profile===2?'selected':''}>Parent</option>
-          </select>
-        </td>
-      </tr>`).join('') || '<tr><td colspan="4" style="color:#8b949e;text-align:center">No clients connected yet</td></tr>';
+      lastClients=s.clients;
+      ct.tBodies[0].innerHTML=s.clients.map(c=>{
+        let opts=(s.profiles||[]).map((p,i)=>`<option value="${i}" ${c.profile===i?'selected':''}>${escHtml(p.name||('Group '+i))}</option>`).join('');
+        let displayName=c.name||'Unknown';
+        return `<tr>
+          <td>
+            <span>${escHtml(displayName)}</span>
+            <button class="btn-sec btn-sm" style="margin-left:6px" onclick="editName('${c.mac}')">✎</button>
+          </td>
+          <td>${c.ip||'&mdash;'}</td>
+          <td><code>${c.mac}</code></td>
+          <td><span class="${c.blocked?'b':'a'}">${c.blocked?'BLOCKED':'ALLOWED'}</span></td>
+          <td>
+            <select style="width:auto" onchange="assignClient('${c.mac}',this.value)">
+              ${opts}
+            </select>
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="5" style="color:#8b949e;text-align:center">No clients connected yet</td></tr>';
     }
   }catch(e){console.error(e);}
 }
@@ -117,13 +163,10 @@ async function load(){
 async function saveProfiles(){
   saveMsg.textContent='Saving...';
   saveMsg.style.color='#8b949e';
+  readProfilesFromDOM();
   let body={
     timezone: tz.value.trim(),
-    profiles: [
-      {start: timeToMin(p0_start.value), end: timeToMin(p0_end.value), dns: p0_dns.value.trim()},
-      {start: timeToMin(p1_start.value), end: timeToMin(p1_end.value), dns: p1_dns.value.trim()},
-      {start: timeToMin(p2_start.value), end: timeToMin(p2_end.value), dns: p2_dns.value.trim()}
-    ]
+    profiles: currentProfiles
   };
   try{
     let r=await fetch(mut('/api/profiles'),{
@@ -148,9 +191,47 @@ async function saveProfiles(){
 
 async function assignClient(mac, val){
   try{
-    let r=await fetch(mut('/api/assign?mac='+encodeURIComponent(mac)+'&profile='+val));
+    let r=await fetch(mut('/api/assign?mac='+encodeURIComponent(mac)+'&profile='+val),{method:'POST'});
     if(r.ok){ load(); }
   }catch(e){console.error(e);}
+}
+
+async function editName(mac){
+  let c=lastClients.find(x=>x.mac===mac);
+  let oldName=c?(c.name||''):'';
+  let curProf=c?c.profile:0;
+  let n=prompt("Enter name:", oldName);
+  if(n!==null){
+    try{
+      let url='/api/assign?mac='+encodeURIComponent(mac)+'&profile='+curProf+'&name='+encodeURIComponent(n);
+      let r=await fetch(mut(url),{method:'POST'});
+      if(r.ok){ load(); }
+    }catch(e){console.error(e);}
+  }
+}
+
+async function addDevice(){
+  let mac=addMac.value.trim();
+  let name=addName.value.trim();
+  let group=addGroupSelect.value;
+  if(!mac){
+    addDevMsg.textContent='MAC address is required.';
+    return;
+  }
+  addDevMsg.textContent='';
+  try{
+    let url='/api/assign?mac='+encodeURIComponent(mac)+'&profile='+encodeURIComponent(group)+'&name='+encodeURIComponent(name);
+    let r=await fetch(mut(url),{method:'POST'});
+    if(r.ok){
+      addMac.value='';
+      addName.value='';
+      load();
+    }else{
+      addDevMsg.textContent='Failed to add device.';
+    }
+  }catch(e){
+    addDevMsg.textContent='Error adding device.';
+  }
 }
 
 async function changeDefaultPwd(){
