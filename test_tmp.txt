@@ -15,7 +15,6 @@
 #include "lwip/etharp.h"
 #include "lwip/netif.h"
 #include "secrets.h"
-#include "scheduler.h"
 #include "dashboard_html.h"
 
 // ---- config ----
@@ -329,7 +328,7 @@ void setupTime() {
   configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
 }
 
-bool isTimeBlocked(uint8_t profileId) {
+bool isTimeBlocked(uint8_t profileId) { // replaced
   if (profileId > 2) return false;
   
   struct tm timeinfo;
@@ -339,7 +338,15 @@ bool isTimeBlocked(uint8_t profileId) {
   int start = profiles[profileId].startBedtimeMinutes;
   int end = profiles[profileId].endBedtimeMinutes;
   
-  return checkTimeWindow(currentMinutes, start, end);
+  if (start == -1 || end == -1) return false; // Disabled
+  
+  if (start > end) {
+    // Crosses midnight (e.g. 21:00 to 07:00)
+    return (currentMinutes >= start || currentMinutes < end);
+  } else {
+    // Standard window
+    return (currentMinutes >= start && currentMinutes < end);
+  }
 }
 
 // ---- async DNS forwarding ----
