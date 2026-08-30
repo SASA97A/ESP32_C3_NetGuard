@@ -36,6 +36,9 @@ export default function DashboardView() {
       const res = await fetchApi('/stats.json');
       if (res.ok) {
         const data: StatsResponse = await res.json();
+        if (data.token) {
+          localStorage.setItem('router_session_token', data.token);
+        }
         setStats(data);
         setError(null);
         if (!isFormInitialized) {

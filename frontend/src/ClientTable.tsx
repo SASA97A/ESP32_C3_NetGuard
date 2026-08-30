@@ -84,6 +84,8 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
   const [addProfile, setAddProfile] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
+  const validClients = clients.filter(c => c && c.mac && c.mac !== "00:00:00:00:00:00");
+
   const handleAssign = async (mac: string, profile: number, name?: string) => {
     let url = `/api/assign?mac=${encodeURIComponent(mac)}&profile=${profile}`;
     if (name) {
@@ -110,7 +112,7 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="text-lg font-medium text-gray-900">Connected Devices ({clients.length})</h3>
+        <h3 className="text-lg font-medium text-gray-900">Connected Devices ({validClients.length})</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
@@ -124,14 +126,14 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {clients.length === 0 ? (
+            {validClients.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
                   No connected devices found.
                 </td>
               </tr>
             ) : (
-              clients.map((client) => (
+              validClients.map((client) => (
                 <ClientRow
                   key={client.mac}
                   client={client}
