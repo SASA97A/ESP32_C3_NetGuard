@@ -2,25 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import type { StatsResponse, Profile } from './interfaces';
 import { fetchApi } from './api';
 import ClientTable from './ClientTable';
+import ProfilesPanel from './ProfilesPanel';
 import { TIMEZONES } from './SettingsView';
 
-export function parseMinToString(m: number): string {
-  if (m === undefined || m === null || m < 0 || isNaN(m)) return '';
-  const hours = Math.floor(m / 60) % 24;
-  const mins = m % 60;
-  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+interface DashboardViewProps {
+  activeTab?: string;
 }
 
-export function parseStringToMin(s: string): number {
-  if (!s) return -1;
-  const [hStr, mStr] = s.split(':');
-  const h = parseInt(hStr, 10);
-  const m = parseInt(mStr, 10);
-  if (isNaN(h) || isNaN(m)) return -1;
-  return h * 60 + m;
-}
-
-export default function DashboardView() {
+export default function DashboardView({ activeTab }: DashboardViewProps) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,145 +97,132 @@ export default function DashboardView() {
 
   if (loading && !stats) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="text-gray-500 font-medium">Loading Dashboard...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-on-surface-variant font-body-md">Loading Dashboard...</div>
       </div>
     );
   }
 
   if (error && !stats) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg">
-          <p className="font-semibold">Error</p>
-          <p className="text-sm">{error}</p>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="bg-error-container border border-error text-on-error-container px-6 py-4 rounded-lg">
+          <p className="font-headline-md text-headline-md">Error</p>
+          <p className="font-body-md text-body-md">{error}</p>
         </div>
       </div>
     );
   }
 
+  const totalClients = stats?.clients ? stats.clients.length : 0;
+  const allowedClients = stats?.clients ? stats.clients.filter(c => !c.blocked && !c.manualBlock).length : 0;
+  const blockedClients = totalClients - allowedClients;
+  const allowedPct = totalClients > 0 ? Math.round((allowedClients / totalClients) * 100) : 100;
+
+  const showProfilesOnly = activeTab === 'groups' || activeTab === 'profiles';
+  const showClientsOnly = activeTab === 'devices' || activeTab === 'clients';
+  const showOverview = !showProfilesOnly && !showClientsOnly;
+
   return (
-    <div className="space-y-8">
-      {/* Hero Metrics Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">System Status</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="bg-white rounded-lg p-6 shadow border border-gray-100">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Uptime</span>
-            <p className="mt-2 text-3xl font-extrabold text-indigo-600">{stats?.uptime || 'N/A'}</p>
-          </div>
-          <div className="bg-white rounded-lg p-6 shadow border border-gray-100">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Temperature</span>
-            <p className="mt-2 text-3xl font-extrabold text-amber-600">
-              {stats?.temp !== undefined ? `${stats.temp.toFixed(1)} °C` : 'N/A'}
-            </p>
-          </div>
-          <div className="bg-white rounded-lg p-6 shadow border border-gray-100">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Free Heap</span>
-            <p className="mt-2 text-3xl font-extrabold text-emerald-600">
-              {stats?.heap !== undefined ? `${Math.round(stats.heap / 1024)} KB` : 'N/A'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Timezone Configuration */}
-      <div className="bg-white rounded-lg p-6 shadow border border-gray-100">
-        <h3 className="text-lg font-medium text-gray-900 mb-3">Timezone Configuration</h3>
-        <div className="max-w-xs">
-          <label className="block text-xs font-medium text-gray-700 mb-1">Timezone (TZ String)</label>
-          <select
-            value={timezone}
-            onChange={(e) => {
-              setTimezone(e.target.value);
-              handleSaveProfiles(e.target.value, profiles);
-            }}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-          >
-            <option value="">Select Timezone...</option>
-            {TIMEZONES.map(tz => <option key={tz.val} value={tz.val}>{tz.label}</option>)}
-          </select>
-          <p className="text-xs text-gray-500 mt-1">Saves automatically when selection changes.</p>
-        </div>
-      </div>
-
-      {/* Profile Management Form */}
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-medium text-gray-900">Access Profiles & Schedules</h3>
-          {saveMessage && (
-            <span className={`text-sm ${saveMessage.includes('failed') ? 'text-red-600' : 'text-green-600'}`}>
-              {saveMessage}
-            </span>
-          )}
-        </div>
-        <div>
-          {profiles.map((prof, idx) => (
-            <div key={idx} className="bg-white rounded-2xl overflow-hidden mb-6">
-              <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-                 <span className="font-semibold text-gray-800 text-sm">Group {idx + 1}</span>
+    <div className="max-w-4xl mx-auto p-container-padding space-y-section-margin pt-stack-gap">
+      {showOverview && (
+        <>
+          {/* Hero Section: Connected Clients Donut Chart */}
+          <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col items-center">
+            <h2 className="font-headline-md text-headline-md mb-4 text-on-surface">Connected Clients</h2>
+            <div
+              className="relative w-48 h-48 rounded-full flex items-center justify-center mb-6"
+              style={{ background: `conic-gradient(#10B981 0% ${allowedPct}%, #EF4444 ${allowedPct}% 100%)` }}
+            >
+              <div className="absolute inset-2 bg-surface-container-lowest rounded-full flex flex-col items-center justify-center">
+                <span className="font-headline-lg text-headline-lg text-on-surface">{totalClients}</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Total</span>
               </div>
-              <div className="divide-y divide-gray-100">
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-gray-600 w-1/3">Name</span>
-                  <input
-                    type="text"
-                    value={prof.name || ''}
-                    onChange={(e) => updateProfileField(idx, 'name', e.target.value)}
-                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
-                    placeholder="Label"
-                  />
+            </div>
+            <div className="flex w-full justify-around mt-2">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#10B981]"></div>
+                <div className="flex flex-col">
+                  <span className="font-label-md text-label-md text-[#065F46]">{allowedClients} Allowed</span>
                 </div>
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-gray-600 w-1/3">Bedtime Start</span>
-                  <input
-                    type="time"
-                    value={parseMinToString(prof.start)}
-                    onChange={(e) => updateProfileField(idx, 'start', parseStringToMin(e.target.value))}
-                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
-                  />
-                </div>
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-gray-600 w-1/3">Bedtime End</span>
-                  <input
-                    type="time"
-                    value={parseMinToString(prof.end)}
-                    onChange={(e) => updateProfileField(idx, 'end', parseStringToMin(e.target.value))}
-                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
-                  />
-                </div>
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-gray-600 w-1/3">Upstream DNS</span>
-                  <input
-                    type="text"
-                    value={prof.dns || ''}
-                    onChange={(e) => updateProfileField(idx, 'dns', e.target.value)}
-                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
-                    placeholder="1.1.1.1"
-                  />
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#EF4444]"></div>
+                <div className="flex flex-col">
+                  <span className="font-label-md text-label-md text-[#991B1B]">{blockedClients} Blocked</span>
                 </div>
               </div>
             </div>
-          ))}
+          </section>
 
-          <div className="mt-4 mb-6">
-            <button
-              type="button"
-              onClick={() => handleSaveProfiles()}
-              disabled={savingProfiles}
-              className="bg-blue-500 text-white font-semibold rounded-full py-3 px-4 w-full shadow active:scale-95 transition-transform"
-            >
-              {savingProfiles ? 'Saving...' : 'Save Profiles'}
-            </button>
-          </div>
-        </div>
-      </div>
+          {/* System Metrics Grid */}
+          <section className="grid grid-cols-2 md:grid-cols-3 gap-stack-gap">
+            {/* Uptime Card */}
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-4 flex flex-col items-start hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-shadow">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-secondary text-[20px]">schedule</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Uptime</span>
+              </div>
+              <span className="font-label-md text-label-md text-on-surface">{stats?.uptime || 'N/A'}</span>
+            </div>
+            {/* Temperature Card */}
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-4 flex flex-col items-start hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-shadow">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-secondary text-[20px]">device_thermostat</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Temperature</span>
+              </div>
+              <span className="font-label-md text-label-md text-on-surface">
+                {stats?.temp !== undefined ? `${stats.temp.toFixed(1)} °C` : 'N/A'}
+              </span>
+            </div>
+            {/* Free Heap Card */}
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-4 flex flex-col items-start hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-shadow col-span-2 md:col-span-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-secondary text-[20px]">memory</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Free Heap</span>
+              </div>
+              <span className="font-label-md text-label-md text-on-surface">
+                {stats?.heap !== undefined ? `${Math.round(stats.heap / 1024)} KB` : 'N/A'}
+              </span>
+            </div>
+          </section>
 
-      {/* Connected Clients */}
-      {stats && (
+          {/* Timezone Configuration */}
+          <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4">
+            <h3 className="font-headline-md text-headline-md text-on-surface mb-2">Timezone Configuration</h3>
+            <div className="max-w-xs">
+              <label className="block font-label-sm text-label-sm text-on-surface-variant mb-1">Timezone (TZ String)</label>
+              <select
+                value={timezone}
+                onChange={(e) => {
+                  setTimezone(e.target.value);
+                  handleSaveProfiles(e.target.value, profiles);
+                }}
+                className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
+              >
+                <option value="">Select Timezone...</option>
+                {TIMEZONES.map(tz => <option key={tz.val} value={tz.val}>{tz.label}</option>)}
+              </select>
+              <p className="font-label-sm text-label-sm text-outline mt-1">Saves automatically when selection changes.</p>
+            </div>
+          </section>
+        </>
+      )}
+
+      {(showOverview || showProfilesOnly) && (
+        <ProfilesPanel
+          profiles={profiles}
+          onUpdateProfileField={updateProfileField}
+          onSaveProfiles={() => handleSaveProfiles()}
+          savingProfiles={savingProfiles}
+          saveMessage={saveMessage}
+        />
+      )}
+
+      {(showOverview || showClientsOnly) && (
         <ClientTable
-          clients={stats.clients || []}
-          profiles={profiles.length > 0 ? profiles : stats.profiles || []}
+          clients={stats?.clients || []}
+          profiles={profiles.length > 0 ? profiles : stats?.profiles || []}
           onRefresh={fetchStats}
         />
       )}

@@ -10,6 +10,7 @@ export interface Client {
   mac: string;
   profile: number;
   blocked: boolean;
+  manualBlock?: boolean;
   name: string;
 }
 
