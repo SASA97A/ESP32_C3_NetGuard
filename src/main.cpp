@@ -824,8 +824,15 @@ static String jesc(const String &s)
   return o;
 }
 
+static void sendCorsHeaders() {
+  web.sendHeader("Access-Control-Allow-Origin", "*");
+  web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  web.sendHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+}
+
 static void handleRoot()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -845,6 +852,7 @@ static void saveConfig();
 
 static void handleStats()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -889,6 +897,7 @@ static void handleStats()
 
 static void handleSaveProfiles()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -956,6 +965,7 @@ static void handleSaveProfiles()
 
 static void handleAssignProfile()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -1008,6 +1018,7 @@ static void handleAssignProfile()
 
 static void handleSetPass()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -1031,6 +1042,7 @@ static void handleSetPass()
 
 static void handleDhcpToggle()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -1058,6 +1070,7 @@ static void handleDhcpToggle()
 
 static void handleSetWifi()
 {
+  sendCorsHeaders();
   if (!checkAuth())
   {
     requireAuth();
@@ -1546,23 +1559,23 @@ void setup()
   tcpUpstream.begin(0);
   tcpDnsServer.begin();
   web.collectHeaders(COLLECTED_HEADERS, sizeof(COLLECTED_HEADERS) / sizeof(char *));
-  web.on("/", handleRoot);
-  web.on("/stats.json", handleStats);
+  web.on("/", HTTP_GET, handleRoot);
+  web.on("/stats.json", HTTP_GET, handleStats);
   web.on("/api/profiles", HTTP_POST, handleSaveProfiles);
-  web.on("/api/assign", handleAssignProfile);
-  web.on("/setpass", handleSetPass);
+  web.on("/api/assign", HTTP_POST, handleAssignProfile);
+  web.on("/setpass", HTTP_POST, handleSetPass);
   // web.on("/ban", handleBan);
   // web.on("/addblock", handleAddBlock);
   // web.on("/unblock", handleUnblock);
   // web.on("/upload", HTTP_POST, handleUploadDone, handleUpload);
   web.on("/update", HTTP_POST, handleFwUpdateDone, handleFwUpload);
-  web.on("/fetchnow", []()
+  web.on("/fetchnow", HTTP_POST, []()
          {
     if (!checkAuth()) { requireAuth(); return; }
     if (!checkToken()) { web.send(403, "text/plain", "bad token"); return; }
     fetchBlocklist(updateUrl);
     web.send(200, "text/plain", updateStatus); });
-  web.on("/setupdate", []()
+  web.on("/setupdate", HTTP_POST, []()
          {
     if (!checkAuth()) { requireAuth(); return; }
     if (!checkToken()) { web.send(403, "text/plain", "bad token"); return; }
@@ -1570,8 +1583,19 @@ void setup()
     if (web.hasArg("h")) { updateIntervalH = web.arg("h").toInt(); if (updateIntervalH < 1) updateIntervalH = 1; }
     saveUpdateCfg();
     web.send(200, "text/plain", "ok"); });
-  web.on("/dhcp", handleDhcpToggle);
-  web.on("/setwifi", handleSetWifi);
+  web.on("/dhcp", HTTP_POST, handleDhcpToggle);
+  web.on("/setwifi", HTTP_POST, handleSetWifi);
+
+  web.onNotFound([]() {
+    if (web.method() == HTTP_OPTIONS) {
+      sendCorsHeaders();
+      web.send(204);
+    } else {
+      sendCorsHeaders();
+      web.send(404, "text/plain", "Not Found");
+    }
+  });
+
   web.begin();
 
   ArduinoOTA.setHostname("c3adblock");

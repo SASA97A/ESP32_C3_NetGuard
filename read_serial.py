@@ -15,11 +15,11 @@ try:
     
     start_time = time.time()
     print("Listening to COM5...")
-    while time.time() - start_time < 5:
+    while time.time() - start_time < 15:
         line = sio.readline()
         if line:
             print(line.strip())
-            if "dashboard password:" in line:
+            if "IP:" in line or "dashboard:" in line:
                 break
     
     ser.close()
