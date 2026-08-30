@@ -188,9 +188,9 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             <button
               type="submit"
               disabled={submitting}
-              className="w-full rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-indigo-300"
+              className="bg-blue-500 text-white font-semibold rounded-full py-3 px-4 w-full shadow active:scale-95 transition-transform"
             >
-              {submitting ? 'Adding...' : 'Add / Update Client'}
+              {submitting ? 'Adding...' : 'Add Device'}
             </button>
           </div>
         </form>

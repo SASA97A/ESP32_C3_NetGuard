@@ -171,8 +171,8 @@ export default function DashboardView() {
       </div>
 
       {/* Profile Management Form */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+      <div>
+        <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-medium text-gray-900">Access Profiles & Schedules</h3>
           {saveMessage && (
             <span className={`text-sm ${saveMessage.includes('failed') ? 'text-red-600' : 'text-green-600'}`}>
@@ -180,64 +180,61 @@ export default function DashboardView() {
             </span>
           )}
         </div>
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {profiles.map((prof, idx) => (
-              <div key={idx} className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-4">
-                <h4 className="font-semibold text-gray-800 text-base">Profile {idx}</h4>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Profile Name</label>
+        <div>
+          {profiles.map((prof, idx) => (
+            <div key={idx} className="bg-white rounded-2xl overflow-hidden mb-6">
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                 <span className="font-semibold text-gray-800 text-sm">Group {idx + 1}</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600 w-1/3">Name</span>
                   <input
                     type="text"
                     value={prof.name || ''}
                     onChange={(e) => updateProfileField(idx, 'name', e.target.value)}
-                    placeholder={`Profile ${idx}`}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
+                    placeholder="Label"
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Bedtime Start</label>
-                    <input
-                      type="time"
-                      value={parseMinToString(prof.start)}
-                      onChange={(e) => updateProfileField(idx, 'start', parseStringToMin(e.target.value))}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Bedtime End</label>
-                    <input
-                      type="time"
-                      value={parseMinToString(prof.end)}
-                      onChange={(e) => updateProfileField(idx, 'end', parseStringToMin(e.target.value))}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                    />
-                  </div>
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600 w-1/3">Bedtime Start</span>
+                  <input
+                    type="time"
+                    value={parseMinToString(prof.start)}
+                    onChange={(e) => updateProfileField(idx, 'start', parseStringToMin(e.target.value))}
+                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
+                  />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Upstream DNS</label>
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600 w-1/3">Bedtime End</span>
+                  <input
+                    type="time"
+                    value={parseMinToString(prof.end)}
+                    onChange={(e) => updateProfileField(idx, 'end', parseStringToMin(e.target.value))}
+                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
+                  />
+                </div>
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600 w-1/3">Upstream DNS</span>
                   <input
                     type="text"
                     value={prof.dns || ''}
                     onChange={(e) => updateProfileField(idx, 'dns', e.target.value)}
+                    className="w-2/3 text-right bg-transparent focus:outline-none text-gray-900 font-medium"
                     placeholder="1.1.1.1"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   />
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
 
-          <div className="flex justify-end">
+          <div className="mt-4 mb-6">
             <button
               type="button"
               onClick={() => handleSaveProfiles()}
               disabled={savingProfiles}
-              className="rounded-md border border-transparent bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-indigo-300"
+              className="bg-blue-500 text-white font-semibold rounded-full py-3 px-4 w-full shadow active:scale-95 transition-transform"
             >
               {savingProfiles ? 'Saving...' : 'Save Profiles'}
             </button>

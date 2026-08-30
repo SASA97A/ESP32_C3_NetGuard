@@ -19,28 +19,23 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-16 sm:pb-0">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900">ESP32 Parental Controls</h1>
-          <button
-            onClick={() => {
-              localStorage.clear();
-              setConnected(false);
-            }}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          >
-            Disconnect
-          </button>
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'gateway' ? <DashboardView /> : <SettingsView />}
-      </main>
+    <div className="min-h-screen bg-gray-100 font-sans sm:flex sm:justify-center">
+      <div className="w-full sm:max-w-md bg-gray-100 min-h-screen relative pb-20 shadow-xl overflow-x-hidden">
+        {/* Header */}
+        <header className="bg-gray-100 pt-12 pb-4 px-4 flex justify-between items-center sticky top-0 z-10 backdrop-blur-md bg-opacity-80">
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Access Gateway</h1>
+          <button onClick={() => { localStorage.clear(); setConnected(false); }} className="text-sm font-semibold text-blue-500 active:opacity-70">Log Out</button>
+        </header>
 
-      <div className="fixed bottom-0 left-0 right-0 max-w-7xl mx-auto bg-gray-50 border-t border-gray-200 flex justify-around p-3 pb-safe z-50">
-        <button onClick={() => setActiveTab('gateway')} className={`flex flex-col items-center ${activeTab==='gateway'?'text-blue-500':'text-gray-500'}`}>Gateway</button>
-        <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center ${activeTab==='settings'?'text-blue-500':'text-gray-500'}`}>Settings</button>
+        <main className="px-4">
+           {activeTab === 'gateway' ? <DashboardView /> : <SettingsView />}
+        </main>
+
+        {/* Tab Bar */}
+        <div className="absolute bottom-0 w-full bg-white border-t border-gray-200 flex justify-around p-3 pb-8 z-50">
+          <button onClick={() => setActiveTab('gateway')} className={`text-sm font-semibold flex flex-col items-center flex-1 ${activeTab==='gateway'?'text-blue-500':'text-gray-400'}`}>Gateway</button>
+          <button onClick={() => setActiveTab('settings')} className={`text-sm font-semibold flex flex-col items-center flex-1 ${activeTab==='settings'?'text-blue-500':'text-gray-400'}`}>Settings</button>
+        </div>
       </div>
     </div>
   );
