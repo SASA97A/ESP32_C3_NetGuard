@@ -188,7 +188,7 @@ struct Profile {
 Profile profiles[10]; // dynamic up to 10 profiles
 int numProfiles = 3;
 String timezoneStr = "UTC0";
-const String FW_VERSION = "v0.9.1";
+const String FW_VERSION = "v1.0.0";
 
 struct Dev
 {
