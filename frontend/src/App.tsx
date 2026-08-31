@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import ConnectView from './ConnectView';
 import DashboardView from './DashboardView';
 import SettingsView from './SettingsView';
@@ -133,9 +133,9 @@ function AppContent() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <AppContent />
-    </BrowserRouter>
+    </Router>
   );
 }
 

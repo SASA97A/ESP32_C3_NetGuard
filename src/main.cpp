@@ -1158,7 +1158,7 @@ static void handleFwUpdateDone()
   web.send(ok ? 200 : 500, "text/plain", ok ? "ok, rebooting" : "firmware update failed");
   if (ok)
   {
-    delay(300);
+    delay(1500);
     ESP.restart();
   }
 }
