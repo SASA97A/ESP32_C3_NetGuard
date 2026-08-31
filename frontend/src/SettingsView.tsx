@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { fetchApi } from './api';
+import { useState, useEffect, useRef } from 'react';
+import { fetchApi, uploadOTA } from './api';
 
 export const TIMEZONES = [
   { label: "(GMT -12:00) Eniwetok, Kwajalein", val: "UTC12" },
@@ -54,6 +54,10 @@ export default function SettingsView() {
   const [tzMsg, setTzMsg] = useState('');
   const [firmwareVersion, setFirmwareVersion] = useState<string | null>(null);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  
+  const [otaProgress, setOtaProgress] = useState<number | null>(null);
+  const [otaError, setOtaError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchApi('/stats.json')
@@ -146,6 +150,32 @@ export default function SettingsView() {
     }
   };
 
+  const handleManualOta = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setOtaError(null);
+    setOtaProgress(0);
+    
+    try {
+      await uploadOTA(file, (pct) => setOtaProgress(pct));
+      setOtaProgress(100);
+      setOtaError("Flash complete! Rebooting Gateway... (Page will reload)");
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    } catch (err: any) {
+      setOtaError(err.message || 'OTA Upload failed');
+      setOtaProgress(null);
+    }
+    
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   return (
     <main className="flex-grow px-container-padding py-section-margin w-full max-w-3xl mx-auto space-y-stack-gap">
       <h1 className="font-headline-lg text-headline-lg mb-stack-gap">Settings</h1>
@@ -236,31 +266,74 @@ export default function SettingsView() {
         </div>
         
         {hasUpdate && (
-          <div className="bg-primary-container text-on-primary-container p-4 rounded-lg mb-4 flex items-start gap-3 border border-primary/20">
-            <span className="material-symbols-outlined shrink-0 mt-0.5">update</span>
-            <div>
+          <div className="bg-surface-container-lowest text-on-surface p-4 rounded-lg mb-4 flex items-start gap-3 border-l-4 border-l-primary border border-outline-variant/60 shadow-sm">
+            <span className="material-symbols-outlined text-primary shrink-0 mt-0.5">update</span>
+            <div className="w-full">
               <p className="font-label-md text-label-md font-bold mb-1">Update Available: {latestVersion}</p>
-              <p className="font-body-md text-body-md text-sm opacity-90">
-                Download the latest firmware binary from GitHub to upgrade your device safely.
+              <p className="font-body-md text-body-md text-sm text-on-surface-variant mb-3">
+                Download the latest firmware binary from GitHub and flash it here to upgrade your gateway safely.
               </p>
-              <a 
-                href="https://github.com/SASA97A/ESP32_C3_NetGuard/releases/latest" 
-                target="_blank" 
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1 font-label-sm text-label-sm font-bold bg-primary text-on-primary px-3 py-1.5 rounded hover:opacity-90 active:scale-95 transition-all"
-              >
-                <span className="material-symbols-outlined text-[16px]">download</span>
-                Get Update
-              </a>
+              <div className="flex gap-2 items-center">
+                <a 
+                  href="https://github.com/SASA97A/ESP32_C3_NetGuard/releases/latest" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-label-sm text-label-sm font-bold bg-secondary-container text-on-secondary-container px-3 py-1.5 rounded hover:opacity-90 active:scale-95 transition-all"
+                >
+                  <span className="material-symbols-outlined text-[16px]">download</span>
+                  Get .bin File
+                </a>
+              </div>
             </div>
           </div>
         )}
 
-        <div className="pt-4 border-t border-surface-variant flex justify-between items-center">
-          <span className="font-body-md text-on-surface-variant">Firmware Version</span>
-          <span className="font-label-md font-mono bg-surface-container-low px-2 py-1 rounded text-on-surface">
-            {firmwareVersion ? firmwareVersion : 'Loading...'}
-          </span>
+        {otaProgress !== null && (
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-1">
+              <span className="font-label-sm text-on-surface-variant">Firmware Upload</span>
+              <span className="font-label-sm text-primary">{otaProgress}%</span>
+            </div>
+            <div className="w-full bg-surface-variant rounded-full h-2">
+              <div 
+                className="bg-primary h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${otaProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {otaError && (
+          <div className={`p-3 rounded mb-4 text-sm font-medium border ${otaError.includes('complete') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-error-container text-error border-error/20'}`}>
+            {otaError}
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="font-body-md text-on-surface-variant">Firmware Version</span>
+            <span className="font-label-md font-mono bg-surface-container-low px-2 py-1 rounded text-on-surface w-fit border border-outline-variant">
+              {firmwareVersion ? firmwareVersion : 'Loading...'}
+            </span>
+          </div>
+
+          <div className="flex items-center">
+            <input 
+              type="file" 
+              accept=".bin" 
+              ref={fileInputRef} 
+              className="hidden" 
+              onChange={handleFileChange} 
+            />
+            <button
+              onClick={handleManualOta}
+              disabled={otaProgress !== null && otaProgress < 100}
+              className="flex items-center gap-1.5 font-label-md text-label-md bg-surface text-on-surface border border-outline-variant px-4 py-2 rounded shadow-sm hover:bg-surface-container-low active:scale-95 transition-all disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">publish</span>
+              Manual Update
+            </button>
+          </div>
         </div>
       </section>
     </main>
