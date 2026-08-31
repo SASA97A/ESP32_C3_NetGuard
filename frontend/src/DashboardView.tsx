@@ -211,8 +211,12 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
     );
   }
 
-  const totalClients = stats?.clients ? stats.clients.length : 0;
-  const allowedClients = stats?.clients ? stats.clients.filter(c => !c.blocked && !c.manualBlock).length : 0;
+  const validDashClients = stats?.clients 
+    ? stats.clients.filter(c => c && c.mac && c.mac !== "00:00:00:00:00:00") 
+    : [];
+  
+  const totalClients = validDashClients.length;
+  const allowedClients = validDashClients.filter(c => !c.blocked && !c.manualBlock).length;
   const blockedClients = totalClients - allowedClients;
   const allowedPct = totalClients > 0 ? Math.round((allowedClients / totalClients) * 100) : 100;
 
