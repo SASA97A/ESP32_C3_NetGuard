@@ -12,7 +12,7 @@ function SidebarNav() {
       <Link
         to="/home"
         className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/home' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'
+          act === '/home' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
         }`}
       >
         <span className="material-symbols-outlined" data-icon="home" style={act === '/home' ? { fontVariationSettings: "'FILL' 1" } : undefined}>home</span>
@@ -21,7 +21,7 @@ function SidebarNav() {
       <Link
         to="/profiles"
         className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/profiles' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'
+          act === '/profiles' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
         }`}
       >
         <span className="material-symbols-outlined" data-icon="tune" style={act === '/profiles' ? { fontVariationSettings: "'FILL' 1" } : undefined}>tune</span>
@@ -30,7 +30,7 @@ function SidebarNav() {
       <Link
         to="/clients"
         className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/clients' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'
+          act === '/clients' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
         }`}
       >
         <span className="material-symbols-outlined" data-icon="devices" style={act === '/clients' ? { fontVariationSettings: "'FILL' 1" } : undefined}>devices</span>
@@ -39,7 +39,7 @@ function SidebarNav() {
       <Link
         to="/settings"
         className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/settings' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'
+          act === '/settings' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
         }`}
       >
         <span className="material-symbols-outlined" data-icon="settings" style={act === '/settings' ? { fontVariationSettings: "'FILL' 1" } : undefined}>settings</span>
@@ -54,19 +54,19 @@ function BottomNav() {
   const act = loc.pathname;
   return (
     <nav className="fixed bottom-0 w-full z-10 bg-surface dark:bg-on-background border-t border-outline-variant flex justify-around items-center h-16 pb-safe md:hidden px-2">
-      <Link to="/home" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/home' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+      <Link to="/home" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/home' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">home</span>
         <span className="font-label-md text-[10px] mt-1">Home</span>
       </Link>
-      <Link to="/profiles" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/profiles' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+      <Link to="/profiles" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/profiles' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">tune</span>
         <span className="font-label-md text-[10px] mt-1">Profiles</span>
       </Link>
-      <Link to="/clients" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/clients' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+      <Link to="/clients" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/clients' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">devices</span>
         <span className="font-label-md text-[10px] mt-1">Clients</span>
       </Link>
-      <Link to="/settings" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/settings' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+      <Link to="/settings" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/settings' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">settings</span>
         <span className="font-label-md text-[10px] mt-1">Settings</span>
       </Link>
