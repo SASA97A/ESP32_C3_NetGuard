@@ -310,7 +310,7 @@ export default function SettingsView() {
         )}
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
             <span className="font-body-md text-on-surface-variant">Firmware Version</span>
             <span className="font-label-md font-mono bg-surface-container-low px-2 py-1 rounded text-on-surface w-fit border border-outline-variant">
               {firmwareVersion ? firmwareVersion : 'Loading...'}
@@ -331,7 +331,7 @@ export default function SettingsView() {
               className="flex items-center gap-1.5 font-label-md text-label-md bg-surface text-on-surface border border-outline-variant px-4 py-2 rounded shadow-sm hover:bg-surface-container-low active:scale-95 transition-all disabled:opacity-50"
             >
               <span className="material-symbols-outlined text-[18px]">publish</span>
-              Manual Update
+              Flash Firmware
             </button>
           </div>
         </div>

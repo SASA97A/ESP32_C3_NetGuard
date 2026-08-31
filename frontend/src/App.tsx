@@ -74,6 +74,68 @@ function BottomNav() {
   );
 }
 
+function PwaInstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      if (!sessionStorage.getItem('pwaPromptSkipped')) {
+        setShowPrompt(true);
+      }
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  if (!showPrompt) return null;
+
+  const handleInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setShowPrompt(false);
+      }
+    }
+  };
+
+  const handleDismiss = () => {
+    sessionStorage.setItem('pwaPromptSkipped', 'true');
+    setShowPrompt(false);
+  };
+
+  return (
+    <div className="fixed bottom-20 md:bottom-8 left-4 right-4 md:left-auto md:right-8 z-[100] bg-surface border border-outline-variant shadow-lg rounded-xl p-4 flex flex-col md:flex-row items-center gap-4 animate-in slide-in-from-bottom-5">
+      <div className="flex items-center gap-3 w-full md:w-auto">
+        <div className="bg-primary text-on-primary w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+          <span className="material-symbols-outlined text-[20px]">shield</span>
+        </div>
+        <div className="flex flex-col">
+          <span className="font-headline-md text-label-md font-bold text-on-surface">Install NetGuard</span>
+          <span className="font-body-md text-[12px] text-on-surface-variant leading-tight">Add to your home screen for quick access.</span>
+        </div>
+      </div>
+      <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0 justify-end">
+        <button 
+          onClick={handleDismiss}
+          className="px-3 py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors font-label-md text-label-md"
+        >
+          No
+        </button>
+        <button 
+          onClick={handleInstall}
+          className="px-4 py-1.5 rounded-lg bg-primary text-on-primary hover:opacity-90 active:scale-95 transition-all font-label-md text-label-md whitespace-nowrap"
+        >
+          Yes
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const [connected, setConnected] = useState(false);
 
@@ -124,6 +186,9 @@ function AppContent() {
           <Route path="/settings" element={<SettingsView />} />
         </Routes>
       </main>
+
+      {/* PWA Install Banner */}
+      <PwaInstallPrompt />
 
       {/* BottomNavBar (Mobile only) */}
       <BottomNav />
