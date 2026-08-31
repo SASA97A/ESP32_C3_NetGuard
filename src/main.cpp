@@ -33,7 +33,7 @@ static const int MAX_DHCP_LEASES = 32;
 static const uint32_t UPSTREAM_TIMEOUT_MS = 2000;
 static const uint32_t REMOTE_FETCH_IDLE_MS = 3000;
 static const char *DASHBOARD_ETAG = "c3adb-v2";
-static const char *DEFAULT_PASS = "admin123";
+static const char *DEFAULT_PASS = "adminpass123";
 
 // ---- logging ----
 #ifdef NDEBUG
@@ -809,7 +809,7 @@ static bool checkToken()
 
 static void requireAuth()
 {
-  web.sendHeader("WWW-Authenticate", "Basic realm=\"C3 AdBlock\"");
+  web.sendHeader("WWW-Authenticate", "Basic realm=\"C3 NetGuard\"");
   web.send(401, "text/plain", "auth required");
 }
 
@@ -1309,8 +1309,8 @@ static void runCaptivePortal()
   WiFi.setSleep(false);
   WiFi.setTxPower(WIFI_POWER_11dBm);
 
-  WiFi.softAP("C3AdBlock-Setup");
-  LOGN("\n[captive] AP: C3AdBlock-Setup — connect and open http://192.168.4.1");
+  WiFi.softAP("C3NetGuard-Setup");
+  LOGN("\n[captive] AP: C3NetGuard-Setup — connect and open http://192.168.4.1");
 
   captiveDns.begin(53);
 
@@ -1344,7 +1344,7 @@ static void runCaptivePortal()
     String pass = web.arg("pass");
     if (ssid.length() == 0) { web.send(400, "text/html", "<h1>Missing SSID</h1>"); return; }
     saveWifiCfg(ssid, pass);
-    web.send(200, "text/html", "<h1>Saved! Rebooting...</h1><p>Connect to your WiFi and find the device at c3adblock.local</p>");
+    web.send(200, "text/html", "<h1>Saved! Rebooting...</h1><p>Connect to your WiFi and find the device at c3netguard.local</p>");
     delay(1500);
     ESP.restart(); });
 
@@ -1549,7 +1549,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(300);
-  LOGN("\n[c3-adblock] booting");
+  LOGN("\n[c3-netguard] booting");
 
   if (!LittleFS.begin(true))
     LOGN("LittleFS FAILED");
@@ -1570,10 +1570,10 @@ void setup()
     return;
   }
 
-  if (MDNS.begin("c3adblock"))
+  if (MDNS.begin("c3netguard"))
   {
     MDNS.addService("http", "tcp", 80);
-    LOGN("dashboard: http://c3adblock.local");
+    LOGN("dashboard: http://c3netguard.local");
   }
 
   dnsServer.begin(DNS_PORT);
@@ -1620,7 +1620,7 @@ void setup()
 
   web.begin();
 
-  ArduinoOTA.setHostname("c3adblock");
+  ArduinoOTA.setHostname("c3netguard");
   ArduinoOTA.begin();
 
   if (dhcpEnabled)

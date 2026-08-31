@@ -5,7 +5,7 @@ interface ConnectViewProps {
 }
 
 export default function ConnectView({ onConnected }: ConnectViewProps) {
-  const [ip, setIp] = useState('http://192.168.1.164');
+  const [ip, setIp] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -83,7 +83,7 @@ export default function ConnectView({ onConnected }: ConnectViewProps) {
                     className="w-full pl-10 pr-3 py-2 bg-surface-container-lowest border border-outline-variant rounded-DEFAULT focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-label-md text-label-md text-on-surface transition-colors"
                     id="gateway-ip"
                     name="gateway-ip"
-                    placeholder="e.g. 192.168.1.1"
+                    placeholder="e.g. c3netguard.local or 192.168.x.x"
                     type="text"
                     value={ip}
                     onChange={e => setIp(e.target.value)}
