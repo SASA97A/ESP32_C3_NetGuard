@@ -12,9 +12,10 @@ interface ClientRowProps {
   client: Client;
   profiles: Profile[];
   onUpdate: (mac: string, profileId: number, name?: string, block?: boolean) => Promise<void>;
+  onForget: (mac: string) => void;
 }
 
-function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
+function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
   const [name, setName] = useState(client.name || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -72,11 +73,11 @@ function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
             </div>
           </div>
           
-          <div className="flex items-center gap-3 ml-4 md:ml-0 md:float-right">
+          <div className="flex items-center gap-1 ml-4 md:ml-0 md:float-right">
             <button
               type="button"
               onClick={handleEditClick}
-              className="text-primary hover:bg-surface-variant rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+              className="text-primary hover:bg-surface-variant rounded-full p-2 transition-colors flex items-center justify-center active:scale-95"
               title="Edit"
             >
               <span className="material-symbols-outlined text-[20px]">edit</span>
@@ -85,14 +86,22 @@ function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
               type="button"
               onClick={handleToggleBlock}
               className={client.manualBlock
-                ? "text-primary hover:bg-surface-variant rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
-                : "text-error hover:bg-error-container rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+                ? "text-primary hover:bg-surface-variant rounded-full p-2 transition-colors flex items-center justify-center active:scale-95"
+                : "text-error hover:bg-error-container rounded-full p-2 transition-colors flex items-center justify-center active:scale-95"
               }
               title={client.manualBlock ? "Unblock" : "Block"}
             >
               <span className="material-symbols-outlined text-[20px]">
                 {client.manualBlock ? "check_circle" : "block"}
               </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onForget(client.mac)}
+              className="text-error hover:bg-error-container rounded-full p-2 transition-colors flex items-center justify-center active:scale-95"
+              title="Forget Device"
+            >
+              <span className="material-symbols-outlined text-[20px]">delete</span>
             </button>
           </div>
         </div>
@@ -129,6 +138,7 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
   const [addName, setAddName] = useState('');
   const [addProfile, setAddProfile] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingForget, setPendingForget] = useState<string | null>(null);
 
   const validClients = clients.filter(c => c && c.mac && c.mac !== "00:00:00:00:00:00");
 
@@ -141,6 +151,14 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
       url += `&block=${block}`;
     }
     await fetchApi(url, { method: 'POST' });
+    onRefresh();
+  };
+
+  const executeForget = async () => {
+    if (!pendingForget) return;
+    const url = `/api/assign?mac=${encodeURIComponent(pendingForget)}&forget=true`;
+    await fetchApi(url, { method: 'POST' });
+    setPendingForget(null);
     onRefresh();
   };
 
@@ -180,6 +198,7 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
                     client={client}
                     profiles={profiles}
                     onUpdate={handleAssign}
+                    onForget={setPendingForget}
                   />
                 ))
               )}
@@ -243,6 +262,34 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             </button>
           </form>
         </div>
+
+      {pendingForget !== null && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#000000]/50 backdrop-blur-sm p-4">
+          <div className="bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant p-6 max-w-sm w-full mx-auto space-y-4">
+            <div className="flex items-center gap-3 text-error">
+              <span className="material-symbols-outlined text-[24px]">warning</span>
+              <h3 className="font-headline-md text-headline-md text-on-surface">Forget Device?</h3>
+            </div>
+            <p className="font-body-md text-body-md text-on-surface-variant">
+              Are you sure you want to forget this device <strong>({pendingForget})</strong>? If it reconnects to your network, it will reappear as an unnamed device in the Default group.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button 
+                className="flex-1 border border-outline text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-lg hover:bg-surface-container-low transition-colors"
+                onClick={() => setPendingForget(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="flex-1 bg-error text-on-error font-label-md text-label-md px-4 py-2 rounded-lg hover:opacity-90 active:scale-95 transition-all"
+                onClick={executeForget}
+              >
+                Forget
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

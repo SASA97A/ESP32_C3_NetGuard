@@ -995,6 +995,26 @@ static void handleAssignProfile()
   }
 
   String mac = web.arg("mac");
+  
+  if (web.hasArg("forget") && web.arg("forget") == "true")
+  {
+    for (int i = 0; i < numClients; i++)
+    {
+      if (clients[i].mac.equalsIgnoreCase(mac))
+      {
+        clients[i].mac = "00:00:00:00:00:00";
+        clients[i].ip = 0;
+        clients[i].friendlyName = "";
+        clients[i].currentProfileId = 0;
+        clients[i].manualBlock = false;
+        break;
+      }
+    }
+    saveConfig();
+    web.send(200, "text/plain", "ok");
+    return;
+  }
+
   uint8_t pid = web.arg("profile").toInt();
   if (pid >= numProfiles)
     pid = 0;
