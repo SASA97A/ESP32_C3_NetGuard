@@ -33,7 +33,8 @@ Because the ESP32 chip requires the baseline web server and Over-The-Air (OTA) a
 6. Once connected, visit `http://c3netguard.local` in your browser to load the dashboard!
 
 **Subsequent Updates (OTA):**
-Once NetGuard is running, all future version upgrades can be performed wirelessly! Simply download the newest `.bin` from GitHub, navigate to the **Settings** tab in your dashboard, and use the **Flash Firmware** upload tool.
+Once NetGuard is running, all future version upgrades can be performed wirelessly! Simply download the newest `.bin` from GitHub, navigate to the **Settings** tab in your dashboard, and use the **Flash Firmware** upload tool. 
+* **Note on OTA Reboots:** Because the ESP32 physically drops its network connection to instantly hardware-reboot upon a successful flash, the dashboard may occasionally report a false "Connection Error" right at 100%. This is a known, harmless UI quirk. Simply wait a few moments and refresh the page to see your updated dashboard!
 
 ## Hardware Limitations
 **Single-Device Dashboard Access:**
