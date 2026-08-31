@@ -55,6 +55,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
+      - name: Prepare Secrets
+        run: cp src/secrets.example.h src/secrets.h
+
       - name: Build Firmware
         run: pio run -e c3
 
