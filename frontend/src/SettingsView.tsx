@@ -164,12 +164,42 @@ export default function SettingsView() {
     try {
       await uploadOTA(file, (pct) => setOtaProgress(pct));
       setOtaProgress(100);
-      setOtaError("Flash complete! Rebooting Gateway... (Page will reload)");
-      setTimeout(() => {
-        window.location.reload();
-      }, 5000);
+      setOtaError("INFO: Flash complete. Waiting for Gateway to reboot...");
+      
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds wait max
+      const poll = setInterval(async () => {
+        try {
+          attempts++;
+          const res = await fetchApi('/stats.json', { cache: 'no-store' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.version) {
+              clearInterval(poll);
+              if (data.version !== firmwareVersion) {
+                setOtaError("SUCCESS: Gateway flashed successfully!");
+                setFirmwareVersion(data.version);
+              } else {
+                setOtaError("ERROR: Firmware version did not change.");
+              }
+              setTimeout(() => {
+                setOtaError(null);
+                setOtaProgress(null);
+              }, 5000);
+            }
+          }
+        } catch (err) {
+          // Expected to fail while device is restarting
+          if (attempts >= maxAttempts) {
+            clearInterval(poll);
+            setOtaError("ERROR: Gateway failed to reconnect after 30 seconds.");
+            setOtaProgress(null);
+          }
+        }
+      }, 1000);
+
     } catch (err: any) {
-      setOtaError(err.message || 'OTA Upload failed');
+      setOtaError('ERROR: ' + (err.message || 'OTA Upload failed'));
       setOtaProgress(null);
     }
     
@@ -304,8 +334,14 @@ export default function SettingsView() {
         )}
 
         {otaError && (
-          <div className={`p-3 rounded mb-4 text-sm font-medium border ${otaError.includes('complete') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-error-container text-error border-error/20'}`}>
-            {otaError}
+          <div className={`p-3 rounded mb-4 text-sm font-medium border ${
+            otaError.startsWith('SUCCESS') 
+              ? 'bg-green-50 text-green-700 border-green-200' 
+              : otaError.startsWith('INFO') 
+                ? 'bg-secondary-container text-on-secondary-container border-outline-variant/50' 
+                : 'bg-error-container text-error border-error/20'
+          }`}>
+            {otaError.replace(/^(SUCCESS|INFO|ERROR):\s*/, '')}
           </div>
         )}
 
