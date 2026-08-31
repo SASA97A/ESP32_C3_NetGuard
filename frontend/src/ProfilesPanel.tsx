@@ -22,6 +22,8 @@ interface ProfilesPanelProps {
   onSaveProfiles: () => Promise<void>;
   savingProfiles?: boolean;
   saveMessage?: string | null;
+  onAddProfile?: () => void;
+  onRemoveProfile?: (idx: number) => void;
 }
 
 export default function ProfilesPanel({
@@ -30,6 +32,8 @@ export default function ProfilesPanel({
   onSaveProfiles,
   savingProfiles = false,
   saveMessage = null,
+  onAddProfile,
+  onRemoveProfile,
 }: ProfilesPanelProps) {
   return (
     <section className="space-y-stack-gap">
@@ -57,6 +61,17 @@ export default function ProfilesPanel({
               <h3 className="font-headline-md text-headline-md text-on-surface">
                 {prof.name || `Profile ${idx + 1}`}
               </h3>
+              {onRemoveProfile && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveProfile(idx)}
+                  className="text-error hover:bg-error-container/20 px-2 py-1 rounded font-label-md text-label-md transition-colors flex items-center gap-1"
+                  title="Remove Profile"
+                >
+                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                  Remove
+                </button>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -127,6 +142,19 @@ export default function ProfilesPanel({
           </div>
         ))}
       </div>
+
+      {onAddProfile && (
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            onClick={onAddProfile}
+            className="bg-secondary-container text-on-secondary-container font-label-md text-label-md px-4 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95 flex items-center gap-1"
+          >
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            Add Group
+          </button>
+        </div>
+      )}
     </section>
   );
 }

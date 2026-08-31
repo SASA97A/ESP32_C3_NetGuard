@@ -96,6 +96,31 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
     });
   };
 
+  const handleAddProfile = () => {
+    if (profiles.length >= 10) {
+      alert("Maximum 10 groups allowed.");
+      return;
+    }
+    setProfiles([...profiles, { name: "New Group", start: -1, end: -1, dns: "1.1.1.1" }]);
+  };
+
+  const handleRemoveProfile = (idx: number) => {
+    if (!stats) return;
+
+    // Check if clients mapped
+    const mappedClients = (stats.clients || []).filter(c => c.profile === idx);
+    let confirmMsg = "Are you sure you want to remove this group?";
+
+    if (mappedClients.length > 0) {
+      confirmMsg = `WARNING: There are ${mappedClients.length} device(s) mapped to this group. If you delete it, they will default out to the "Default" group. Are you absolutely certain?`;
+    }
+
+    if (!window.confirm(confirmMsg)) return;
+
+    const updated = profiles.filter((_, i) => i !== idx);
+    setProfiles(updated);
+  };
+
   if (loading && !stats) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -218,6 +243,8 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
           onSaveProfiles={() => handleSaveProfiles()}
           savingProfiles={savingProfiles}
           saveMessage={saveMessage}
+          onAddProfile={handleAddProfile}
+          onRemoveProfile={handleRemoveProfile}
         />
       )}
 
