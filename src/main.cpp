@@ -988,9 +988,9 @@ static void handleAssignProfile()
     return;
   }
 
-  if (!web.hasArg("mac") || !web.hasArg("profile"))
+  if (!web.hasArg("mac"))
   {
-    web.send(400, "text/plain", "missing parameters");
+    web.send(400, "text/plain", "missing mac parameter");
     return;
   }
 
@@ -1012,6 +1012,12 @@ static void handleAssignProfile()
     }
     saveConfig();
     web.send(200, "text/plain", "ok");
+    return;
+  }
+
+  if (!web.hasArg("profile"))
+  {
+    web.send(400, "text/plain", "missing profile parameter");
     return;
   }
 
@@ -1178,6 +1184,7 @@ static void handleFwUpdateDone()
   web.send(ok ? 200 : 500, "text/plain", ok ? "ok, rebooting" : "firmware update failed");
   if (ok)
   {
+    web.client().stop();
     delay(1500);
     ESP.restart();
   }
