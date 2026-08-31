@@ -13,15 +13,32 @@ NetGuard acts as an intercepting DNS gateway on your network, allowing administr
 * **Secure Authentication:** Locally authenticated dashboard ensures only network administrators can alter routing rules.
 * **Real-time Polling & PWA:** The dashboard operates as an installable Progressive Web App, securely polling your ESP32 in the background to reflect network statistics, hardware temperatures, and access states dynamically.
 
+## Default Credentials
+When accessing the dashboard for the first time, authenticate using:
+* **Username:** `admin`
+* **Password:** `adminpass123`
+
+*(Note: It is highly recommended to change this password in the Settings tab immediately after your first login.)*
+
 ## Installation / Usage
 
-Users are not required to compile the project manually to enjoy NetGuard.
+**First-Time Installation (USB Only):**
+Because the ESP32 chip requires the baseline web server and Over-The-Air (OTA) architecture to be present before accepting wireless updates, your very first installation must be conducted physically via a USB cable.
 
 1. Navigate to the **Releases** section on GitHub.
 2. Download the latest `firmware.bin` payload.
-3. Flash the `.bin` to your ESP32-C3 device using a standard flashing tool (e.g., Espressif's Flash Download Tools or esptool.py).
-4. Power on the device, connect to the emitted Setup WiFi, and configure it for your local network.
-5. Visit the device's IP address in your browser to load the dashboard.
+3. Flash the `.bin` to your ESP32-C3 device using a standard serial flashing tool (e.g., Espressif's Flash Download Tools or esptool.py) over your COM port.
+4. Power on the device, and look for the newly emitted **C3NetGuard-Setup** WiFi network on your phone or laptop.
+5. Connect to it, and a captive portal will appear (or visit `http://192.168.4.1`) prompting you to securely designate your home WiFi network.
+6. Once connected, visit `http://c3netguard.local` in your browser to load the dashboard!
+
+**Subsequent Updates (OTA):**
+Once NetGuard is running, all future version upgrades can be performed wirelessly! Simply download the newest `.bin` from GitHub, navigate to the **Settings** tab in your dashboard, and use the **Flash Firmware** upload tool.
+
+## Hardware Limitations
+**Single-Device Dashboard Access:**
+The ESP32-C3 is a highly efficient but extremely localized microcontroller. It enforces a strict physical limit on concurrent TCP sockets. Because the React PWA acts as a live monitor and aggressively polls the gateway for status updates in the background, keeping the dashboard open on multiple devices simultaneously (e.g., your smartphone and your desktop) will rapidly exhaust the processor's connection pool. 
+* **Best Practice:** Keep the dashboard actively open on only one device at a time to prevent UI freezing and silent connection rejections.
 
 ## Development
 
