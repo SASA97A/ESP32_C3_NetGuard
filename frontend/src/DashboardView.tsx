@@ -7,9 +7,10 @@ import { TIMEZONES } from './SettingsView';
 
 interface DashboardViewProps {
   activeTab?: string;
+  tab?: string;
 }
 
-export default function DashboardView({ activeTab }: DashboardViewProps) {
+export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,9 +120,10 @@ export default function DashboardView({ activeTab }: DashboardViewProps) {
   const blockedClients = totalClients - allowedClients;
   const allowedPct = totalClients > 0 ? Math.round((allowedClients / totalClients) * 100) : 100;
 
-  const showProfilesOnly = activeTab === 'groups' || activeTab === 'profiles';
-  const showClientsOnly = activeTab === 'devices' || activeTab === 'clients';
-  const showOverview = !showProfilesOnly && !showClientsOnly;
+  const currentTab = tab || activeTab || 'home';
+  const showOverview = currentTab === 'home';
+  const showProfilesOnly = currentTab === 'groups' || currentTab === 'profiles';
+  const showClientsOnly = currentTab === 'devices' || currentTab === 'clients';
 
   return (
     <div className="max-w-4xl mx-auto p-container-padding space-y-section-margin pt-stack-gap">
@@ -209,7 +211,7 @@ export default function DashboardView({ activeTab }: DashboardViewProps) {
         </>
       )}
 
-      {(showOverview || showProfilesOnly) && (
+      {showProfilesOnly && (
         <ProfilesPanel
           profiles={profiles}
           onUpdateProfileField={updateProfileField}
@@ -219,7 +221,7 @@ export default function DashboardView({ activeTab }: DashboardViewProps) {
         />
       )}
 
-      {(showOverview || showClientsOnly) && (
+      {showClientsOnly && (
         <ClientTable
           clients={stats?.clients || []}
           profiles={profiles.length > 0 ? profiles : stats?.profiles || []}
