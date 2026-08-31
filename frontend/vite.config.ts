@@ -9,28 +9,34 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: [
+        'favicon.ico', 
+        'favicon-16x16.png', 
+        'favicon-32x32.png', 
+        'apple-icon-180x180.png', 
+        'ms-icon-310x310.png'
+      ],
       manifest: {
         name: 'NetGuard',
         short_name: 'NetGuard',
         description: 'ESP32 Parental Control Gateway',
-        theme_color: '#0052ff',
+        theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'android-icon-192x192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
+            src: 'ms-icon-310x310.png',
+            sizes: '310x310',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
+            src: 'ms-icon-310x310.png',
+            sizes: '310x310',
             type: 'image/png',
             purpose: 'any maskable'
           }

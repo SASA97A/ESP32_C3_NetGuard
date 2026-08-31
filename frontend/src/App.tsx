@@ -184,6 +184,7 @@ function AppContent() {
           <Route path="/profiles" element={<DashboardView tab="profiles" />} />
           <Route path="/clients" element={<DashboardView tab="clients" />} />
           <Route path="/settings" element={<SettingsView />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>
 
