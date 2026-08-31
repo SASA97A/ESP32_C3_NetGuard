@@ -180,7 +180,7 @@ export default function SettingsView() {
                 setOtaError("SUCCESS: Gateway flashed successfully!");
                 setFirmwareVersion(data.version);
               } else {
-                setOtaError("ERROR: Firmware version did not change.");
+                setOtaError("ERROR: Firmware upgrade failed.");
               }
               setTimeout(() => {
                 setOtaError(null);
