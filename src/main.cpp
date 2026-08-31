@@ -1045,6 +1045,13 @@ static void handleSetPass()
     web.send(403, "text/plain", "bad token");
     return;
   }
+  
+  if (!web.hasArg("old") || web.arg("old") != authPassword)
+  {
+    web.send(403, "text/plain", "invalid current password");
+    return;
+  }
+
   String newPass = web.arg("p");
   newPass.trim();
   if (newPass.length() < 4)

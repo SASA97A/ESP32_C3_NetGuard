@@ -45,6 +45,7 @@ export const TIMEZONES = [
 ];
 
 export default function SettingsView() {
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [timezone, setTimezone] = useState('');
@@ -125,13 +126,16 @@ export default function SettingsView() {
     setLoading(true);
     setMsg('');
     try {
-      const res = await fetchApi('/setpass?p=' + encodeURIComponent(newPassword), { method: 'POST' });
+      const res = await fetchApi(`/setpass?old=${encodeURIComponent(oldPassword)}&p=${encodeURIComponent(newPassword)}`, { method: 'POST' });
       if (res.ok) {
         setMsg('Password updated successfully!');
         const authHeader = 'Basic ' + btoa(`admin:${newPassword}`);
         localStorage.setItem('router_auth', authHeader);
+        setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
+      } else if (res.status === 403) {
+        setMsg('Current password incorrect.');
       } else {
         setMsg('Failed to update password.');
       }
@@ -176,6 +180,17 @@ export default function SettingsView() {
           <h2 className="font-headline-md text-headline-md">Authentication Security</h2>
         </div>
         <form onSubmit={handlePasswordChange} className="space-y-stack-gap">
+          <div className="flex flex-col gap-base">
+            <label className="font-label-sm text-label-sm text-on-surface-variant" htmlFor="old-password">Current Password</label>
+            <input
+              className="font-body-md text-body-md bg-surface border border-outline-variant rounded px-3 py-2 w-full focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-on-surface"
+              id="old-password"
+              placeholder="Enter current password"
+              type="password"
+              value={oldPassword}
+              onChange={e => setOldPassword(e.target.value)}
+            />
+          </div>
           <div className="flex flex-col gap-base">
             <label className="font-label-sm text-label-sm text-on-surface-variant" htmlFor="new-password">New Password</label>
             <input
