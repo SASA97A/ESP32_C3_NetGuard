@@ -49,7 +49,7 @@ export default function ConnectView({ onConnected }: ConnectViewProps) {
       <header className="fixed top-0 w-full z-50 bg-surface border-b border-outline-variant flex justify-between items-center px-container-padding h-14 w-full">
         <div className="flex items-center gap-inline-gap">
           <span className="material-symbols-outlined text-primary text-[24px]">shield</span>
-          <h1 className="font-headline-md text-headline-md font-bold text-primary">NetGuard Admin</h1>
+          <h1 className="font-headline-md text-headline-md font-bold text-primary">NetGuard</h1>
         </div>
       </header>
 

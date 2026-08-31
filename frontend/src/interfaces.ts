@@ -25,6 +25,7 @@ export interface StatsResponse {
   wifi: string;
   token: string;
   timezone: string;
+  version?: string;
   profiles: Profile[];
   clients: Client[];
 }

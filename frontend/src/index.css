@@ -26,10 +26,22 @@ body {
 }
 
 .status-allowed {
-  background-color: #D1FAE5;
-  color: #065F46;
+  background-color: #ecfdf5;
+  color: #059669;
 }
 .status-blocked {
   background-color: #FEE2E2;
   color: #991B1B;
+}
+
+@keyframes wifi-search-fill {
+  0%, 19%   { clip-path: inset(100% 0 0 0); }
+  20%, 39%  { clip-path: inset(75% 0 0 0); }
+  40%, 59%  { clip-path: inset(45% 0 0 0); }
+  60%, 79%  { clip-path: inset(15% 0 0 0); }
+  80%, 100% { clip-path: inset(0% 0 0 0); }
+}
+
+.animate-wifi-search {
+  animation: wifi-search-fill 1.5s infinite;
 }

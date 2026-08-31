@@ -53,21 +53,21 @@ function BottomNav() {
   const loc = useLocation();
   const act = loc.pathname;
   return (
-    <nav className="fixed bottom-0 w-full z-10 bg-surface dark:bg-on-background border-t border-outline-variant flex justify-around items-center h-16 pb-safe md:hidden">
-      <Link to="/home" className={`flex flex-col items-center justify-center p-2 rounded-xl transition-transform active:scale-95 ${act === '/home' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
-        <span className="material-symbols-outlined font-label-md">home</span>
+    <nav className="fixed bottom-0 w-full z-10 bg-surface dark:bg-on-background border-t border-outline-variant flex justify-around items-center h-16 pb-safe md:hidden px-2">
+      <Link to="/home" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/home' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+        <span className="material-symbols-outlined">home</span>
         <span className="font-label-md text-[10px] mt-1">Home</span>
       </Link>
-      <Link to="/profiles" className={`flex flex-col items-center justify-center p-2 rounded-xl transition-transform active:scale-95 ${act === '/profiles' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
-        <span className="material-symbols-outlined font-label-md">tune</span>
+      <Link to="/profiles" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/profiles' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+        <span className="material-symbols-outlined">tune</span>
         <span className="font-label-md text-[10px] mt-1">Profiles</span>
       </Link>
-      <Link to="/clients" className={`flex flex-col items-center justify-center p-2 rounded-xl transition-transform active:scale-95 ${act === '/clients' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
-        <span className="material-symbols-outlined font-label-md">devices</span>
+      <Link to="/clients" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/clients' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+        <span className="material-symbols-outlined">devices</span>
         <span className="font-label-md text-[10px] mt-1">Clients</span>
       </Link>
-      <Link to="/settings" className={`flex flex-col items-center justify-center p-2 rounded-xl transition-transform active:scale-95 ${act === '/settings' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
-        <span className="material-symbols-outlined font-label-md">settings</span>
+      <Link to="/settings" className={`flex-1 mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/settings' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant'}`}>
+        <span className="material-symbols-outlined">settings</span>
         <span className="font-label-md text-[10px] mt-1">Settings</span>
       </Link>
     </nav>
@@ -100,7 +100,7 @@ function AppContent() {
         <div className="flex justify-between items-center px-container-padding h-full w-full">
           <div className="flex items-center gap-inline-gap">
             <span className="material-symbols-outlined text-primary dark:text-primary-fixed-dim" data-icon="shield">shield</span>
-            <h1 className="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">NetGuard Admin</h1>
+            <h1 className="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">NetGuard</h1>
           </div>
           <button
             onClick={handleLogout}

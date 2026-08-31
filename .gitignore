@@ -11,3 +11,18 @@ src/secrets.h
 # Backups / scratch
 *.bak
 tools/__pycache__/
+
+# AI Planning and Logs
+AGENTS.md
+task*.md
+*.log
+*log.txt
+test_tmp.txt
+
+# Design and Prototyping Folders
+frontend/stitch_gateway_access_manager/
+
+# Development Scripts requiring live hardware
+test_api.py
+test_cors.js
+read_serial.py

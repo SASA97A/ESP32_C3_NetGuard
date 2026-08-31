@@ -188,6 +188,7 @@ struct Profile {
 Profile profiles[10]; // dynamic up to 10 profiles
 int numProfiles = 3;
 String timezoneStr = "UTC0";
+const String FW_VERSION = "v1.0.0";
 
 struct Dev
 {
@@ -878,6 +879,7 @@ static void handleStats()
              ",\"wifi\":\"" + jesc(WiFi.SSID()) + "\"" +
              ",\"token\":\"" + jesc(authToken) + "\"" +
              ",\"timezone\":\"" + jesc(timezoneStr) + "\"" +
+             ",\"version\":\"" + jesc(FW_VERSION) + "\"" +
              ",\"profiles\":[";
   for (int i = 0; i < numProfiles; i++)
   {

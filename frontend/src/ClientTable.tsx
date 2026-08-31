@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Client, Profile } from './interfaces';
 import { fetchApi } from './api';
 
@@ -16,6 +16,7 @@ interface ClientRowProps {
 
 function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
   const [name, setName] = useState(client.name || '');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setName(client.name || '');
@@ -24,6 +25,13 @@ function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
   const handleNameBlur = () => {
     if (name !== client.name) {
       onUpdate(client.mac, client.profile, name, client.manualBlock);
+    }
+  };
+
+  const handleEditClick = () => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
     }
   };
 
@@ -39,50 +47,59 @@ function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
   const isBlocked = Boolean(client.manualBlock || client.blocked);
 
   return (
-    <tr className="hover:bg-surface-container-low transition-colors group flex flex-col md:table-row p-4 md:p-0 gap-3 border-b border-surface-variant md:border-b-0">
-      <td className="p-2 md:p-4">
-        <div className="flex items-center gap-3">
-          <div className="bg-surface-variant p-2 rounded-lg text-on-surface">
-            <span className="material-symbols-outlined text-sm">devices</span>
+    <tr className="hover:bg-surface-container-low transition-colors group flex flex-col p-4 md:p-4 gap-3 border-b border-surface-variant md:table-row md:border-b-0">
+      <td className="p-0 md:px-4 md:py-3 flex items-start justify-between md:table-cell md:align-middle">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-3">
+            <div className="bg-surface-variant p-2 rounded-lg text-on-surface shrink-0">
+              <span className="material-symbols-outlined text-sm">devices</span>
+            </div>
+            <div className="flex flex-col items-start">
+              <input
+                ref={inputRef}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={handleNameBlur}
+                placeholder="Unnamed device"
+                className="bg-transparent border-none p-0 focus:ring-0 font-body-md text-on-surface w-32 md:w-48 cursor-text hover:bg-surface-variant px-1 rounded transition-colors"
+              />
+              <span className={`inline-block px-2 py-0.5 rounded font-label-sm text-[10px] font-bold mt-1 ${
+                isBlocked ? "status-blocked" : "status-allowed"
+              }`}>
+                {isBlocked ? "BLOCKED" : "ALLOWED"}
+              </span>
+            </div>
           </div>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleNameBlur}
-            placeholder="Unnamed device"
-            className="bg-transparent border border-transparent focus:border-outline-variant hover:bg-surface-variant p-1 font-body-md text-on-surface rounded transition-colors focus:ring-1 focus:ring-primary focus:outline-none"
-          />
+          
+          <div className="flex items-center gap-3 ml-4 md:ml-0 md:float-right">
+            <button
+              type="button"
+              onClick={handleEditClick}
+              className="text-primary hover:bg-surface-variant rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+              title="Edit"
+            >
+              <span className="material-symbols-outlined text-[20px]">edit</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleBlock}
+              className={client.manualBlock
+                ? "text-primary hover:bg-surface-variant rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+                : "text-error hover:bg-error-container rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+              }
+              title={client.manualBlock ? "Unblock" : "Block"}
+            >
+              <span className="material-symbols-outlined text-[20px]">
+                {client.manualBlock ? "check_circle" : "block"}
+              </span>
+            </button>
+          </div>
         </div>
       </td>
 
-      <td className="p-2 md:p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={handleToggleBlock}
-            className={client.manualBlock
-              ? "text-primary hover:bg-surface-variant rounded px-2 py-1 transition-colors flex items-center gap-1 active:scale-95"
-              : "text-error hover:bg-error-container rounded px-2 py-1 transition-colors flex items-center gap-1 active:scale-95"
-            }
-          >
-            <span className="material-symbols-outlined text-[16px]">
-              {client.manualBlock ? "check_circle" : "block"}
-            </span>
-            <span className="font-label-sm">
-              {client.manualBlock ? "Unblock" : "Block"}
-            </span>
-          </button>
-          <span className={`inline-block px-2 py-1 rounded font-label-sm text-label-sm font-bold ${
-            isBlocked ? "status-blocked" : "status-allowed"
-          }`}>
-            {isBlocked ? "BLOCKED" : "ALLOWED"}
-          </span>
-        </div>
-      </td>
-
-      <td className="p-2 md:p-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+      <td className="p-0 md:px-4 md:py-3 flex flex-col md:flex-row md:items-center justify-between gap-2 md:table-cell md:align-middle">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
           <div className="font-label-md text-label-md font-mono text-secondary">
             <div className="text-on-surface">{client.ip || '-'}</div>
             <div className="text-xs text-outline">{client.mac}</div>
@@ -96,7 +113,7 @@ function ClientRow({ client, profiles, onUpdate }: ClientRowProps) {
             >
               {profiles.map((p, idx) => (
                 <option key={idx} value={idx}>
-                  {p.name || `Profile ${idx + 1}`}
+                  {idx === 0 ? "Default" : (p.name || `Profile ${idx + 1}`)}
                 </option>
               ))}
             </select>
@@ -169,13 +186,14 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             </tbody>
           </table>
         </div>
+      </div>
 
-        <div className="p-4 bg-surface-container-low border-t border-outline-variant">
-          <h3 className="font-headline-md text-headline-md text-on-surface mb-3">
-            Manually Add / Assign Client
-          </h3>
-          <form onSubmit={handleAddSubmit} className="flex flex-col md:flex-row gap-3 items-end">
-            <div className="w-full md:w-auto flex-1">
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6">
+        <h3 className="font-headline-md text-headline-md text-on-surface mb-4">
+          Manually Add / Assign Client
+        </h3>
+        <form onSubmit={handleAddSubmit} className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="w-full md:w-auto flex-1">
               <label className="block font-label-sm text-label-sm text-on-surface-variant mb-1">
                 MAC Address
               </label>
@@ -211,7 +229,7 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
               >
                 {profiles.map((p, idx) => (
                   <option key={idx} value={idx}>
-                    {p.name || `Profile ${idx + 1}`}
+                    {idx === 0 ? "Default" : (p.name || `Profile ${idx + 1}`)}
                   </option>
                 ))}
               </select>
@@ -225,7 +243,6 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             </button>
           </form>
         </div>
-      </div>
     </section>
   );
 }

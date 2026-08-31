@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react';
 import type { Profile } from './interfaces';
 
 export function parseMinToString(m: number): string {
@@ -24,6 +25,7 @@ interface ProfilesPanelProps {
   saveMessage?: string | null;
   onAddProfile?: () => void;
   onRemoveProfile?: (idx: number) => void;
+  removingIdx?: number | null;
 }
 
 export default function ProfilesPanel({
@@ -34,9 +36,21 @@ export default function ProfilesPanel({
   saveMessage = null,
   onAddProfile,
   onRemoveProfile,
+  removingIdx = null,
 }: ProfilesPanelProps) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const prevLengthRef = useRef(profiles.length);
+
+  useEffect(() => {
+    if (profiles.length > prevLengthRef.current) {
+      setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
+      setEditingIdx(profiles.length - 1);
+    }
+    prevLengthRef.current = profiles.length;
+  }, [profiles.length]);
+
   return (
-    <section className="space-y-stack-gap">
+    <section className="space-y-stack-gap pb-32">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-outline-variant pb-2">
         <div>
           <h2 className="font-headline-md text-headline-md text-on-background">Access Profiles</h2>
@@ -55,23 +69,35 @@ export default function ProfilesPanel({
         {profiles.map((prof, idx) => (
           <div
             key={idx}
-            className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 space-y-4 hover:shadow-[0px_4px_12px_rgba(0,0,0,0.05)] transition-shadow"
+            className={`bg-surface-container-lowest border border-outline-variant rounded-xl origin-top transition-all duration-300 overflow-hidden hover:shadow-[0px_4px_12px_rgba(0,0,0,0.05)] ${
+              removingIdx === idx
+                ? 'opacity-0 scale-95 max-h-0 !p-0 !border-0 !m-0 space-y-0'
+                : 'opacity-100 scale-100 max-h-[1000px] p-4 space-y-4'
+            }`}
           >
             <div className="flex justify-between items-center border-b border-surface-variant pb-2">
-              <h3 className="font-headline-md text-headline-md text-on-surface">
-                {prof.name || `Profile ${idx + 1}`}
-              </h3>
-              {onRemoveProfile && (
-                <button
-                  type="button"
-                  onClick={() => onRemoveProfile(idx)}
-                  className="text-error hover:bg-error-container/20 px-2 py-1 rounded font-label-md text-label-md transition-colors flex items-center gap-1"
-                  title="Remove Profile"
-                >
-                  <span className="material-symbols-outlined text-[18px]">delete</span>
-                  Remove
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <h3 className="font-headline-md text-headline-md text-on-surface">
+                  {idx === 0 ? "Default" : (prof.name || `Profile ${idx + 1}`)}
+                </h3>
+                {idx === 0 && (
+                  <span className="bg-surface-variant text-on-surface-variant px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                    Base Group
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {onRemoveProfile && idx !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveProfile(idx)}
+                    className="text-error hover:bg-error-container rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
+                    title="Remove Profile"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">delete</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -81,10 +107,13 @@ export default function ProfilesPanel({
                 </label>
                 <input
                   type="text"
-                  value={prof.name || ''}
+                  value={idx === 0 ? "Default" : (prof.name || '')}
+                  disabled={idx === 0 || editingIdx !== idx}
                   onChange={(e) => onUpdateProfileField(idx, 'name', e.target.value)}
                   placeholder={`Group ${idx + 1}`}
-                  className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
+                  className={`w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary transition-opacity ${
+                    idx === 0 || editingIdx !== idx ? 'opacity-50 bg-surface-container-low cursor-not-allowed' : ''
+                  }`}
                 />
               </div>
 
@@ -96,8 +125,11 @@ export default function ProfilesPanel({
                   <input
                     type="time"
                     value={parseMinToString(prof.start)}
+                    disabled={editingIdx !== idx}
                     onChange={(e) => onUpdateProfileField(idx, 'start', parseStringToMin(e.target.value))}
-                    className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
+                    className={`w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary transition-opacity ${
+                      editingIdx !== idx ? 'opacity-50 bg-surface-container-low cursor-not-allowed' : ''
+                    }`}
                   />
                 </div>
                 <div>
@@ -107,8 +139,11 @@ export default function ProfilesPanel({
                   <input
                     type="time"
                     value={parseMinToString(prof.end)}
+                    disabled={editingIdx !== idx}
                     onChange={(e) => onUpdateProfileField(idx, 'end', parseStringToMin(e.target.value))}
-                    className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
+                    className={`w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary transition-opacity ${
+                      editingIdx !== idx ? 'opacity-50 bg-surface-container-low cursor-not-allowed' : ''
+                    }`}
                   />
                 </div>
               </div>
@@ -121,39 +156,63 @@ export default function ProfilesPanel({
                   <input
                     type="text"
                     value={prof.dns || ''}
+                    disabled={editingIdx !== idx}
                     onChange={(e) => onUpdateProfileField(idx, 'dns', e.target.value)}
                     placeholder="e.g. 1.1.1.1"
-                    className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface font-mono focus:ring-1 focus:ring-primary focus:border-primary"
+                    className={`w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface font-mono focus:ring-1 focus:ring-primary focus:border-primary transition-opacity ${
+                      editingIdx !== idx ? 'opacity-50 bg-surface-container-low cursor-not-allowed' : ''
+                    }`}
                   />
                 </div>
               </div>
             </div>
 
             <div className="flex gap-2 pt-2 border-t border-surface-variant">
-              <button
-                type="button"
-                onClick={() => onSaveProfiles()}
-                disabled={savingProfiles}
-                className="w-full bg-primary text-on-primary font-label-md text-label-md px-3 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95 disabled:opacity-50"
-              >
-                {savingProfiles ? 'Saving...' : 'Save Changes'}
-              </button>
+              {editingIdx === idx ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEditingIdx(null)}
+                    className="flex-1 bg-surface-variant text-on-surface-variant font-label-md text-label-md px-3 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveProfiles();
+                      setEditingIdx(null);
+                    }}
+                    disabled={savingProfiles}
+                    className="flex-1 bg-primary text-on-primary font-label-md text-label-md px-3 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95 disabled:opacity-50"
+                  >
+                    {savingProfiles ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingIdx(idx)}
+                  className="w-full bg-primary text-on-primary font-label-md text-label-md px-3 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[18px]">edit</span>
+                  Edit Profile
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
 
       {onAddProfile && (
-        <div className="flex justify-end pt-2">
-          <button
-            type="button"
-            onClick={onAddProfile}
-            className="bg-secondary-container text-on-secondary-container font-label-md text-label-md px-4 py-2 rounded-lg hover:opacity-90 transition-opacity active:scale-95 flex items-center gap-1"
-          >
-            <span className="material-symbols-outlined text-[18px]">add</span>
-            Add Group
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onAddProfile}
+          className="fixed right-6 z-50 bg-secondary-container text-on-secondary-container flex items-center gap-2 px-4 py-3 rounded-full shadow-lg hover:opacity-90 active:scale-95 transition-all bottom-24 md:bottom-8"
+        >
+          <span className="material-symbols-outlined">add</span>
+          <span className="font-label-md">Add Group</span>
+        </button>
       )}
     </section>
   );
