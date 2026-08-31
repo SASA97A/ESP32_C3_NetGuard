@@ -31,10 +31,19 @@ Because the ESP32 chip requires the baseline web server and Over-The-Air (OTA) a
 4. Power on the device, and look for the newly emitted **C3NetGuard-Setup** WiFi network on your phone or laptop.
 5. Connect to it, and a captive portal will appear (or visit `http://192.168.4.1`) prompting you to securely designate your home WiFi network.
 6. Once connected, visit `http://c3netguard.local` in your browser to load the dashboard!
+7. **CRITICAL ROUTER SETUP:** For NetGuard to actively intercept and manage your devices, you must log into your main home router's admin panel and change your primary DHCP **DNS Server** to point to the local IP address of your ESP32-C3. If you skip this step, devices on your network will naturally bypass the gateway!
 
 **Subsequent Updates (OTA):**
 Once NetGuard is running, all future version upgrades can be performed wirelessly! Simply download the newest `.bin` from GitHub, navigate to the **Settings** tab in your dashboard, and use the **Flash Firmware** upload tool. 
 * **Note on OTA Reboots:** Because the ESP32 physically drops its network connection to instantly hardware-reboot upon a successful flash, the dashboard may occasionally report a false "Connection Error" right at 100%. This is a known, harmless UI quirk. Simply wait a few moments and refresh the page to see your updated dashboard!
+
+## Recommended DNS Providers (Content Filtering)
+NetGuard allows you to apply different content filters to different profiles by supplying specific DNS IPs. While NetGuard manages *when* devices can connect, your upstream DNS selection dictates *what* they can safely access. Here are several popular, free options you can plug into your profiles:
+
+* **Cloudflare Families** (Blocks Malware & Adult Content): `1.1.1.3`
+* **AdGuard Family** (Blocks Ads, Trackers & Adult Content): `94.140.14.15`
+* **OpenDNS Family Shield** (Blocks Adult Content): `208.67.222.123`
+* **Standard Unfiltered** (Best for unrestricted 'Adults' or 'IoT' profiles): `1.1.1.1` (Cloudflare) or `8.8.8.8` (Google)
 
 ## Hardware Limitations
 **Single-Device Dashboard Access:**
