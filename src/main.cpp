@@ -30,6 +30,7 @@ static const int MAX_PENDING = 32;
 static const int MAX_CLIENTS = 96;
 static const int MAX_CUSTOM = 200;
 static const int MAX_DHCP_LEASES = 32;
+static const int MAX_PROFILE_LIMITS = 96;
 static const uint32_t UPSTREAM_TIMEOUT_MS = 2000;
 static const uint32_t REMOTE_FETCH_IDLE_MS = 3000;
 static const char *DASHBOARD_ETAG = "c3adb-v2";
@@ -187,8 +188,8 @@ struct Profile {
 };
 
 Profile profiles[10]; // dynamic up to 10 profiles
-String profileAppLimitsStr[10][32];
-uint64_t profileAppLimitsHash[10][32];
+String profileAppLimitsStr[10][MAX_PROFILE_LIMITS];
+uint64_t profileAppLimitsHash[10][MAX_PROFILE_LIMITS];
 int numProfileAppLimits[10] = {0};
 int numProfiles = 3;
 String timezoneStr = "UTC0";
@@ -1004,9 +1005,9 @@ static void handleSaveProfiles()
           profiles[idx].bedtimeMode = 0; // Default hard
 
         numProfileAppLimits[idx] = 0;
-        if (p["limits"].is<JsonArray>()) {
-            for (String s : p["limits"].as<JsonArray>()) {
-                if (numProfileAppLimits[idx] >= 32) break;
+          if (p["limits"].is<JsonArray>()) {
+              for (String s : p["limits"].as<JsonArray>()) {
+                  if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS) break;
                 profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
                 profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
                 numProfileAppLimits[idx]++;
@@ -1582,9 +1583,9 @@ static void loadConfig()
           profiles[idx].bedtimeMode = 0; // Default hard
 
         numProfileAppLimits[idx] = 0;
-        if (p["limits"].is<JsonArray>()) {
-            for (String s : p["limits"].as<JsonArray>()) {
-                if (numProfileAppLimits[idx] >= 32) break;
+          if (p["limits"].is<JsonArray>()) {
+              for (String s : p["limits"].as<JsonArray>()) {
+                  if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS) break;
                 profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
                 profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
                 numProfileAppLimits[idx]++;
