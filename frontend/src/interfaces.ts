@@ -3,6 +3,8 @@ export interface Profile {
   start: number;
   end: number;
   dns: string;
+  mode?: number;
+  limits?: string[];
 }
 
 export interface Client {

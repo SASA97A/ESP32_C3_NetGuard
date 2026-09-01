@@ -28,13 +28,22 @@ function SidebarNav() {
         <span className="font-label-md text-label-md">Profiles</span>
       </Link>
       <Link
-        to="/clients"
+        to="/profiles"
         className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/clients' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
+          act === '/profiles' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
         }`}
       >
-        <span className="material-symbols-outlined" data-icon="devices" style={act === '/clients' ? { fontVariationSettings: "'FILL' 1" } : undefined}>devices</span>
-        <span className="font-label-md text-label-md">Clients</span>
+        <span className="material-symbols-outlined" data-icon="groups" style={act === '/profiles' ? { fontVariationSettings: "'FILL' 1" } : undefined}>groups</span>
+        <span className="font-label-md text-label-md">Profiles</span>
+      </Link>
+      <Link
+        to="/filters"
+        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
+          act === '/filters' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
+        }`}
+      >
+        <span className="material-symbols-outlined" data-icon="filter_alt" style={act === '/filters' ? { fontVariationSettings: "'FILL' 1" } : undefined}>filter_alt</span>
+        <span className="font-label-md text-label-md">App Limits</span>
       </Link>
       <Link
         to="/settings"
@@ -182,6 +191,7 @@ function AppContent() {
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<DashboardView tab="home" />} />
           <Route path="/profiles" element={<DashboardView tab="profiles" />} />
+          <Route path="/filters" element={<DashboardView tab="filters" />} />
           <Route path="/clients" element={<DashboardView tab="clients" />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="*" element={<Navigate to="/home" replace />} />

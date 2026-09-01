@@ -3,6 +3,7 @@ import type { StatsResponse, Profile } from './interfaces';
 import { fetchApi } from './api';
 import ClientTable from './ClientTable';
 import ProfilesPanel from './ProfilesPanel';
+import FiltersView from './FiltersView';
 
 interface DashboardViewProps {
   activeTab?: string;
@@ -102,7 +103,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
       alert("Maximum 10 groups allowed.");
       return;
     }
-    setProfiles([...profiles, { name: "New Group", start: -1, end: -1, dns: "1.1.1.1" }]);
+    setProfiles([...profiles, { name: "New Group", start: -1, end: -1, mode: 0, dns: "1.1.1.1", limits: [] }]);
   };
 
   const handleRemoveProfile = (idx: number) => {
@@ -223,6 +224,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
   const showOverview = currentTab === 'home';
   const showProfilesOnly = currentTab === 'groups' || currentTab === 'profiles';
   const showClientsOnly = currentTab === 'devices' || currentTab === 'clients';
+  const showFiltersOnly = currentTab === 'filters';
 
   return (
     <div className="max-w-4xl mx-auto p-container-padding space-y-section-margin pt-stack-gap">
@@ -321,6 +323,15 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
           clients={stats?.clients || []}
           profiles={profiles.length > 0 ? profiles : stats?.profiles || []}
           onRefresh={fetchStats}
+        />
+      )}
+
+      {showFiltersOnly && (
+        <FiltersView
+          profiles={profiles}
+          onUpdateProfileField={updateProfileField}
+          onSaveProfiles={() => handleSaveProfiles()}
+          savingProfiles={savingProfiles}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { universalFetch } from './api';
+import { universalFetch, isTauri } from './api';
 
 interface ConnectViewProps {
   onConnected: () => void;
@@ -38,7 +38,11 @@ export default function ConnectView({ onConnected }: ConnectViewProps) {
         setError('Connection failed. Status: ' + res.status);
       }
     } catch (err) {
-      setError('Cannot reach device. Ensure you are on the same WiFi network and input is correct.');
+      if (window.location.protocol === 'https:' && !isTauri()) {
+        setError('Connection blocked by browser security (HTTPS). Modern web browsers refuse to connect to local devices from an HTTPS website. Please download our Desktop App from GitHub Releases to manage your router securely.');
+      } else {
+        setError('Cannot reach device. Ensure you are on the same WiFi network and input is correct.');
+      }
     } finally {
       setLoading(false);
     }

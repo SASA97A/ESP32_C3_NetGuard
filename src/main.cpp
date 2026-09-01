@@ -183,9 +183,13 @@ struct Profile {
   int startBedtimeMinutes; // Minutes since midnight (e.g. 1260 for 21:00)
   int endBedtimeMinutes;   // (e.g. 420 for 07:00)
   IPAddress upstreamDNS;
+  int bedtimeMode; // 0 = Hard Blackout, 1 = Soft/App Limits
 };
 
 Profile profiles[10]; // dynamic up to 10 profiles
+String profileAppLimitsStr[10][32];
+uint64_t profileAppLimitsHash[10][32];
+int numProfileAppLimits[10] = {0};
 int numProfiles = 3;
 String timezoneStr = "UTC0";
 const String FW_VERSION = "v1.0.4";
@@ -335,7 +339,7 @@ void setupTime() {
   configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
 }
 
-bool isTimeBlocked(uint8_t profileId) {
+bool isTimerActive(uint8_t profileId) {
   if (profileId >= numProfiles) return false;
   
   struct tm timeinfo;
@@ -346,6 +350,31 @@ bool isTimeBlocked(uint8_t profileId) {
   int end = profiles[profileId].endBedtimeMinutes;
   
   return checkTimeWindow(currentMinutes, start, end);
+}
+
+bool inSoftBlockList(uint8_t pid, const char* domain, size_t len) {
+    if (len == 0 || pid >= numProfiles) return false;
+    
+    // Hash full domain first
+    uint64_t h = fnv40(domain, len);
+    for (int i = 0; i < numProfileAppLimits[pid]; i++) {
+        if (profileAppLimitsHash[pid][i] == h) return true;
+    }
+    
+    // Check subdomains
+    int i = 0;
+    while(i < len) {
+        if (domain[i] == '.') {
+            const char* sub = domain + i + 1;
+            size_t subLen = len - i - 1;
+            h = fnv40(sub, subLen);
+            for (int k = 0; k < numProfileAppLimits[pid]; k++) {
+                if (profileAppLimitsHash[pid][k] == h) return true;
+            }
+        }
+        i++;
+    }
+    return false;
 }
 
 // ---- async DNS forwarding ----
@@ -424,11 +453,15 @@ static void handleDns()
 
   Dev *c = getClient((uint32_t)cip);
   uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
-  if (pid > 2) pid = 0;
+  if (pid >= numProfiles) pid = 0;
 
   bool blocked = c ? c->manualBlock : false;
-  if (!blocked) {
-    blocked = isTimeBlocked(pid);
+  if (!blocked && isTimerActive(pid)) {
+    if (profiles[pid].bedtimeMode == 0) {
+      blocked = true;
+    } else {
+      blocked = inSoftBlockList(pid, domain, dl);
+    }
   }
 
   if (blocked)
@@ -548,11 +581,15 @@ static void handleTcpDns()
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
   uint8_t pid = c ? c->currentProfileId : 0;
-  if (pid > 2) pid = 0;
+  if (pid >= numProfiles) pid = 0;
 
   bool blocked = c ? c->manualBlock : false;
-  if (!blocked) {
-    blocked = isTimeBlocked(pid);
+  if (!blocked && isTimerActive(pid)) {
+    if (profiles[pid].bedtimeMode == 0) {
+      blocked = true;
+    } else {
+      blocked = inSoftBlockList(pid, domain, dl);
+    }
   }
   IPAddress pDNS = profiles[pid].upstreamDNS;
   if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
@@ -887,14 +924,21 @@ static void handleStats()
     j += "{\"name\":\"" + jesc(profiles[i].name) + "\"" +
          ",\"start\":" + String(profiles[i].startBedtimeMinutes) +
          ",\"end\":" + String(profiles[i].endBedtimeMinutes) +
-         ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"}";
+         ",\"mode\":" + String(profiles[i].bedtimeMode) +
+         ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"" +
+         ",\"limits\":[";
+    for (int k = 0; k < numProfileAppLimits[i]; k++) {
+        j += (k ? "," : "");
+        j += "\"" + jesc(profileAppLimitsStr[i][k]) + "\"";
+    }
+    j += "]}";
   }
   j += "],\"clients\":[";
   for (int i = 0; i < numClients; i++)
   {
     Dev &c = clients[i];
     IPAddress ip(c.ip);
-    bool blocked = c.manualBlock || isTimeBlocked(c.currentProfileId);
+    bool blocked = c.manualBlock || isTimerActive(c.currentProfileId);
     j += (i ? "," : "");
     j += "{\"ip\":\"" + ip.toString() + "\",\"mac\":\"" + jesc(c.mac) +
          "\",\"name\":\"" + jesc(c.friendlyName) +
@@ -944,17 +988,32 @@ static void handleSaveProfiles()
   {
     JsonArray profArray = doc["profiles"].as<JsonArray>();
     int idx = 0;
-    for (JsonObject p : profArray)
-    {
-      if (idx >= 10)
-        break;
-      if (!p["name"].isNull())
-        profiles[idx].name = p["name"].as<String>();
-      if (!p["start"].isNull())
-        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
-      if (!p["end"].isNull())
-        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
-      if (!p["dns"].isNull())
+      for (JsonObject p : profArray)
+      {
+        if (idx >= 10)
+          break;
+        if (!p["name"].isNull())
+          profiles[idx].name = p["name"].as<String>();
+        if (!p["start"].isNull())
+          profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+        if (!p["end"].isNull())
+          profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+        if (!p["mode"].isNull())
+          profiles[idx].bedtimeMode = p["mode"].as<int>();
+        else
+          profiles[idx].bedtimeMode = 0; // Default hard
+
+        numProfileAppLimits[idx] = 0;
+        if (p["limits"].is<JsonArray>()) {
+            for (String s : p["limits"].as<JsonArray>()) {
+                if (numProfileAppLimits[idx] >= 32) break;
+                profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
+                profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
+                numProfileAppLimits[idx]++;
+            }
+        }
+
+        if (!p["dns"].isNull())
       {
         IPAddress ip;
         if (ip.fromString(p["dns"].as<const char *>()))
@@ -1450,7 +1509,12 @@ static void saveConfig()
     doc["profiles"][i]["name"] = profiles[i].name;
     doc["profiles"][i]["start"] = profiles[i].startBedtimeMinutes;
     doc["profiles"][i]["end"] = profiles[i].endBedtimeMinutes;
+    doc["profiles"][i]["mode"] = profiles[i].bedtimeMode;
     doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
+    JsonArray limits = doc["profiles"][i]["limits"].to<JsonArray>();
+    for (int j = 0; j < numProfileAppLimits[i]; j++) {
+        limits.add(profileAppLimitsStr[i][j]);
+    }
   }
 
   for (int i = 0; i < numClients; i++)
@@ -1502,17 +1566,32 @@ static void loadConfig()
   {
     JsonArray profArray = doc["profiles"].as<JsonArray>();
     int idx = 0;
-    for (JsonObject p : profArray)
-    {
-      if (idx >= 10)
-        break;
-      if (!p["name"].isNull())
-        profiles[idx].name = p["name"].as<String>();
-      if (!p["start"].isNull())
-        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
-      if (!p["end"].isNull())
-        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
-      if (!p["dns"].isNull())
+      for (JsonObject p : profArray)
+      {
+        if (idx >= 10)
+          break;
+        if (!p["name"].isNull())
+          profiles[idx].name = p["name"].as<String>();
+        if (!p["start"].isNull())
+          profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+        if (!p["end"].isNull())
+          profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+        if (!p["mode"].isNull())
+          profiles[idx].bedtimeMode = p["mode"].as<int>();
+        else
+          profiles[idx].bedtimeMode = 0; // Default hard
+
+        numProfileAppLimits[idx] = 0;
+        if (p["limits"].is<JsonArray>()) {
+            for (String s : p["limits"].as<JsonArray>()) {
+                if (numProfileAppLimits[idx] >= 32) break;
+                profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
+                profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
+                numProfileAppLimits[idx]++;
+            }
+        }
+
+        if (!p["dns"].isNull())
       {
         IPAddress ip;
         if (ip.fromString(p["dns"].as<const char *>()))

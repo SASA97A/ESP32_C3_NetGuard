@@ -1,6 +1,8 @@
 name: Build Desktop Apps (Tauri)
 
 on:
+  release:
+    types: [published]
   workflow_dispatch: # Allows you to manually click "Run workflow" to build them anytime!
   push:
     paths:
@@ -61,13 +63,25 @@ jobs:
           projectPath: desktop-app
           args: ${{ matrix.args }}
           
-      - name: Upload Artifacts
+      - name: Upload Artifacts (Testing)
+        if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: NetGuard-Desktop-${{ matrix.platform }}
           path: |
-            desktop-app/src-tauri/target/release/bundle/dmg/*.dmg
-            desktop-app/src-tauri/target/release/bundle/appimage/*.AppImage
-            desktop-app/src-tauri/target/release/bundle/deb/*.deb
-            desktop-app/src-tauri/target/release/bundle/nsis/*.exe
+            desktop-app/src-tauri/target/**/bundle/dmg/*.dmg
+            desktop-app/src-tauri/target/**/bundle/appimage/*.AppImage
+            desktop-app/src-tauri/target/**/bundle/deb/*.deb
+            desktop-app/src-tauri/target/**/bundle/nsis/*.exe
           retention-days: 3
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            desktop-app/src-tauri/target/**/bundle/dmg/*.dmg
+            desktop-app/src-tauri/target/**/bundle/appimage/*.AppImage
+            desktop-app/src-tauri/target/**/bundle/deb/*.deb
+            desktop-app/src-tauri/target/**/bundle/nsis/*.exe

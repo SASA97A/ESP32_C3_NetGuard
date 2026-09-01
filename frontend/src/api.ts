@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-const isTauri = () => {
+export const isTauri = () => {
   return window !== undefined && window.__TAURI_INTERNALS__ !== undefined;
 };
 
