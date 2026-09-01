@@ -192,7 +192,7 @@ uint64_t profileAppLimitsHash[10][32];
 int numProfileAppLimits[10] = {0};
 int numProfiles = 3;
 String timezoneStr = "UTC0";
-const String FW_VERSION = "v1.0.4";
+const String FW_VERSION = "v1.0.5";
 
 struct Dev
 {
