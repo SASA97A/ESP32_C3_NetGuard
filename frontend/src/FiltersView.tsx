@@ -19,23 +19,43 @@ const PREDEFINED_APPS = [
 
 export default function FiltersView({ profiles, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
   const [activeProfileIdx, setActiveProfileIdx] = useState<number>(0);
+  const [expandedApp, setExpandedApp] = useState<string | null>(null);
   const activeProfile = profiles[activeProfileIdx];
 
-  const handleToggleApp = (appDomains: string[]) => {
+  const handleToggleApp = (appDomains: string[], forceState?: boolean) => {
     let currentLimits = activeProfile.limits || [];
-    
-    // Check if the app is fully blocked (all domains present)
     const isBlocked = appDomains.every(d => currentLimits.includes(d));
 
-    if (isBlocked) {
-      // Remove all domains of this app
-      currentLimits = currentLimits.filter(d => !appDomains.includes(d));
+    if (forceState !== undefined) {
+      if (forceState) {
+        currentLimits = [...currentLimits, ...appDomains.filter(d => !currentLimits.includes(d))];
+      } else {
+        currentLimits = currentLimits.filter(d => !appDomains.includes(d));
+      }
     } else {
-      // Add all missing domains of this app
-      currentLimits = [...currentLimits, ...appDomains.filter(d => !currentLimits.includes(d))];
+      if (isBlocked) {
+        currentLimits = currentLimits.filter(d => !appDomains.includes(d));
+      } else {
+        currentLimits = [...currentLimits, ...appDomains.filter(d => !currentLimits.includes(d))];
+      }
     }
     
     onUpdateProfileField(activeProfileIdx, 'limits', currentLimits);
+  };
+
+  const handleToggleSingleDomain = (domain: string) => {
+    let currentLimits = activeProfile.limits || [];
+    if (currentLimits.includes(domain)) {
+      currentLimits = currentLimits.filter(d => d !== domain);
+    } else {
+      currentLimits = [...currentLimits, domain];
+    }
+    onUpdateProfileField(activeProfileIdx, 'limits', currentLimits);
+  };
+
+  const getAppActiveCount = (appDomains: string[]) => {
+    const limits = activeProfile?.limits || [];
+    return appDomains.filter(d => limits.includes(d)).length;
   };
 
   const hasApp = (appDomains: string[]) => {
@@ -143,9 +163,11 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
         {/* Quick Filters */}
         <section className="mb-section-margin">
           <h2 className="font-headline-md text-headline-md text-on-background mb-4">Quick Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          <div className="flex flex-col gap-3">
               {PREDEFINED_APPS.map(app => {
-                const active = hasApp(app.domains);
+                const isFullyBlocked = hasApp(app.domains);
+                const activeCount = getAppActiveCount(app.domains);
+                const isExpanded = expandedApp === app.id;
                 
                 // Construct the logo styling per Stitch design
                 let logoChar = app.label.charAt(0);
@@ -159,29 +181,93 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
                 else if (app.id === 'twitter') { logoChar = 'X'; logoBg = 'bg-black'; logoText = 'text-white'; }
 
                 return (
-                  <button
-                    key={app.id}
-                    onClick={() => handleToggleApp(app.domains)}
-                    className={`w-full flex items-center justify-between p-4 rounded-lg border active:scale-[0.98] transition-all ${
-                      active 
-                      ? 'bg-[#FEE2E2] border-[#FECACA]' 
-                      : 'bg-surface border-outline-variant hover:bg-surface-container-high'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm text-lg font-bold ${logoBg} ${logoText}`}>
-                        {logoChar}
+                  <div key={app.id} className={`w-full rounded-xl border transition-all ${
+                    isExpanded ? 'shadow-md border-outline-variant bg-surface' : 'bg-surface border-outline-variant hover:bg-surface-container-high'
+                  } ${!isExpanded && isFullyBlocked ? 'bg-[#FEE2E2] border-[#FECACA]' : ''}`}>
+                    
+                    {/* Header Row */}
+                    <div 
+                      className="flex items-center justify-between p-4 cursor-pointer"
+                      onClick={() => setExpandedApp(isExpanded ? null : app.id)}
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center shadow-sm text-lg font-bold ${logoBg} ${logoText}`}>
+                          {logoChar}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={`font-body-lg text-body-lg font-semibold ${
+                            !isExpanded && isFullyBlocked ? 'text-[#991B1B]' : 'text-on-surface'
+                          }`}>{app.label}</span>
+                          <span className="font-label-sm text-outline">
+                            {activeCount === app.domains.length ? "All domains blocked" : activeCount > 0 ? `${activeCount}/${app.domains.length} domains blocked` : "Allowed"}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`font-body-lg text-body-lg font-semibold ${
-                        active ? 'text-[#991B1B]' : 'text-on-surface'
-                      }`}>{app.label}</span>
+                      
+                      <div className="flex items-center gap-2">
+                        {!isExpanded && (
+                          <span className={`material-symbols-outlined ${
+                            isFullyBlocked ? 'text-[#991B1B]' : 'text-outline-variant'
+                          }`}>
+                            {isFullyBlocked ? 'block' : 'check_circle'}
+                          </span>
+                        )}
+                        <button 
+                          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-surface-variant transition-colors text-on-surface-variant"
+                        >
+                          <span className={`material-symbols-outlined transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                            expand_more
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                    <span className={`material-symbols-outlined ${
-                      active ? 'text-[#991B1B]' : 'text-on-surface-variant'
-                    }`}>
-                      {active ? 'block' : 'check_circle'}
-                    </span>
-                  </button>
+
+                    {/* Expandable Drawer Content */}
+                    {isExpanded && (
+                      <div className="border-t border-outline-variant bg-surface-container-lowest rounded-b-xl overflow-hidden">
+                        
+                        {/* Master Toggle Header */}
+                        <div className="flex items-center justify-between p-4 bg-surface-variant/30 border-b border-surface-variant">
+                          <span className="font-label-md text-on-surface">Apply to all domains</span>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleToggleApp(app.domains, false); }}
+                              className="px-3 py-1 font-label-md text-label-md rounded border border-outline-variant bg-surface hover:bg-surface-container-high transition-colors"
+                            >Allow All</button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleToggleApp(app.domains, true); }}
+                              className="px-3 py-1 font-label-md text-label-md rounded border border-transparent bg-error text-on-error hover:opacity-90 transition-colors"
+                            >Block All</button>
+                          </div>
+                        </div>
+
+                        {/* Individual Domains */}
+                        <div className="flex flex-col">
+                          {app.domains.map(domain => {
+                            const isDomainBlocked = (activeProfile.limits || []).includes(domain);
+                            return (
+                              <div key={domain} className="flex items-center justify-between p-4 md:px-6 hover:bg-surface-container-lowest/50 border-b border-surface-variant last:border-b-0">
+                                <span className="font-label-md text-on-surface tracking-wide">{domain}</span>
+                                
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleToggleSingleDomain(domain); }}
+                                  className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${
+                                    isDomainBlocked ? 'bg-error' : 'bg-surface-variant'
+                                  }`}
+                                >
+                                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                                    isDomainBlocked ? 'left-7 font-bold' : 'left-1'
+                                  }`} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                      </div>
+                    )}
+
+                  </div>
                 );
               })}
           </div>
