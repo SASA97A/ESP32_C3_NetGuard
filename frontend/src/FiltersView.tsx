@@ -9,12 +9,16 @@ interface FiltersViewProps {
 }
 
 const PREDEFINED_APPS = [
-  { id: 'meta', label: 'Meta (FB/Insta/WhatsApp)', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
+  { id: 'meta', label: 'Meta', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
   { id: 'tiktok', label: 'TikTok', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
   { id: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
-  { id: 'roblox', label: 'Roblox / Gaming', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
+  { id: 'snapchat', label: 'Snapchat', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
+  { id: 'discord', label: 'Discord', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
+  { id: 'twitch', label: 'Twitch', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { id: 'pinterest', label: 'Pinterest', domains: ['pinterest.com', 'pinimg.com'] },
+  { id: 'roblox', label: 'Roblox', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
   { id: 'reddit', label: 'Reddit', domains: ['reddit.com', 'redditmedia.com'] },
-  { id: 'twitter', label: 'X / Twitter', domains: ['twitter.com', 'twimg.com', 'x.com'] }
+  { id: 'twitter', label: 'X', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
 export default function FiltersView({ profiles, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
@@ -177,6 +181,10 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
                 if (app.id === 'meta') { logoChar = 'f'; logoText = 'text-[#1877F2]'; }
                 else if (app.id === 'tiktok') { logoChar = 't'; logoBg = 'bg-black'; logoText = 'text-white'; }
                 else if (app.id === 'youtube') { logoChar = '▶'; logoText = 'text-red-600'; }
+                else if (app.id === 'snapchat') { logoBg = 'bg-yellow-400'; logoText = 'text-black'; }
+                else if (app.id === 'discord') { logoBg = 'bg-[#5865F2]'; logoText = 'text-white'; }
+                else if (app.id === 'twitch') { logoBg = 'bg-[#9146FF]'; logoText = 'text-white'; }
+                else if (app.id === 'pinterest') { logoBg = 'bg-[#E60023]'; logoText = 'text-white'; }
                 else if (app.id === 'reddit') { logoChar = 'r'; logoText = 'text-orange-500'; }
                 else if (app.id === 'twitter') { logoChar = 'X'; logoBg = 'bg-black'; logoText = 'text-white'; }
 
@@ -195,7 +203,7 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
                           {logoChar}
                         </div>
                         <div className="flex flex-col">
-                          <span className={`font-body-lg text-body-lg font-semibold ${
+                          <span className={`font-body-lg text-body-lg ${
                             !isExpanded && isFullyBlocked ? 'text-[#991B1B]' : 'text-on-surface'
                           }`}>{app.label}</span>
                           <span className="font-label-sm text-outline">
@@ -246,7 +254,7 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
                           {app.domains.map(domain => {
                             const isDomainBlocked = (activeProfile.limits || []).includes(domain);
                             return (
-                              <div key={domain} className="flex items-center justify-between p-4 md:px-6 hover:bg-surface-container-lowest/50 border-b border-surface-variant last:border-b-0">
+                              <div key={domain} className="flex items-center justify-between py-5 px-4 md:px-6 hover:bg-surface-container-lowest/50 border-b border-surface-variant last:border-b-0">
                                 <span className="font-label-md text-on-surface tracking-wide">{domain}</span>
                                 
                                 <button 
