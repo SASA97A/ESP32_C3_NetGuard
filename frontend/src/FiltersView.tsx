@@ -9,16 +9,16 @@ interface FiltersViewProps {
 }
 
 const PREDEFINED_APPS = [
-  { id: 'meta', label: 'Meta', icon: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Facebook_Logo_2023.png', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
-  { id: 'tiktok', label: 'TikTok', icon: 'https://upload.wikimedia.org/wikipedia/en/a/a9/TikTok_logo.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
-  { id: 'youtube', label: 'YouTube', icon: 'https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
-  { id: 'snapchat', label: 'Snapchat', icon: 'https://upload.wikimedia.org/wikipedia/en/c/c4/Snapchat_logo.svg', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
-  { id: 'discord', label: 'Discord', icon: 'https://upload.wikimedia.org/wikipedia/en/9/98/Discord_logo.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
-  { id: 'twitch', label: 'Twitch', icon: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Twitch_Glitch_Logo_Purple.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
-  { id: 'pinterest', label: 'Pinterest', icon: 'https://upload.wikimedia.org/wikipedia/commons/0/08/Pinterest-logo.png', domains: ['pinterest.com', 'pinimg.com'] },
-  { id: 'roblox', label: 'Roblox', icon: 'https://upload.wikimedia.org/wikipedia/commons/3/3a/Roblox_player_icon_black.svg', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
-  { id: 'reddit', label: 'Reddit', icon: 'https://upload.wikimedia.org/wikipedia/commons/b/b4/Reddit_logo.svg', domains: ['reddit.com', 'redditmedia.com'] },
-  { id: 'twitter', label: 'X', icon: 'https://upload.wikimedia.org/wikipedia/commons/b/b6/Image_created_with_a_mobile_phone.png', customIconStyle: 'w-5 h-5 object-contain', domains: ['twitter.com', 'twimg.com', 'x.com'] }
+  { id: 'meta', label: 'Meta', icon: '/icons/meta.svg', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
+  { id: 'tiktok', label: 'TikTok', icon: '/icons/tiktok.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
+  { id: 'youtube', label: 'YouTube', icon: '/icons/youtube.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
+  { id: 'snapchat', label: 'Snapchat', icon: '/icons/snapchat.svg', customIconStyle: 'w-7 h-7 object-contain', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
+  { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', customIconStyle: 'w-7 h-7 object-contain', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
+  { id: 'twitch', label: 'Twitch', icon: '/icons/twitch.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { id: 'pinterest', label: 'Pinterest', icon: '/icons/pinterest.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['pinterest.com', 'pinimg.com'] },
+  { id: 'roblox', label: 'Roblox', icon: '/icons/roblox.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
+  { id: 'reddit', label: 'Reddit', icon: '/icons/reddit.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['reddit.com', 'redditmedia.com'] },
+  { id: 'twitter', label: 'X', icon: '/icons/x.svg', customIconStyle: 'w-5 h-5 object-contain', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
 export default function FiltersView({ profiles, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
