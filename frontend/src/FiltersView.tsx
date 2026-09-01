@@ -9,16 +9,16 @@ interface FiltersViewProps {
 }
 
 const PREDEFINED_APPS = [
-  { id: 'meta', label: 'Meta', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
-  { id: 'tiktok', label: 'TikTok', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
-  { id: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
-  { id: 'snapchat', label: 'Snapchat', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
-  { id: 'discord', label: 'Discord', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
-  { id: 'twitch', label: 'Twitch', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
-  { id: 'pinterest', label: 'Pinterest', domains: ['pinterest.com', 'pinimg.com'] },
-  { id: 'roblox', label: 'Roblox', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
-  { id: 'reddit', label: 'Reddit', domains: ['reddit.com', 'redditmedia.com'] },
-  { id: 'twitter', label: 'X', domains: ['twitter.com', 'twimg.com', 'x.com'] }
+  { id: 'meta', label: 'Meta', icon: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Facebook_Logo_2023.png', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
+  { id: 'tiktok', label: 'TikTok', icon: 'https://upload.wikimedia.org/wikipedia/en/a/a9/TikTok_logo.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
+  { id: 'youtube', label: 'YouTube', icon: 'https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
+  { id: 'snapchat', label: 'Snapchat', icon: 'https://upload.wikimedia.org/wikipedia/en/c/c4/Snapchat_logo.svg', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
+  { id: 'discord', label: 'Discord', icon: 'https://upload.wikimedia.org/wikipedia/en/9/98/Discord_logo.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
+  { id: 'twitch', label: 'Twitch', icon: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Twitch_Glitch_Logo_Purple.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { id: 'pinterest', label: 'Pinterest', icon: 'https://upload.wikimedia.org/wikipedia/commons/0/08/Pinterest-logo.png', domains: ['pinterest.com', 'pinimg.com'] },
+  { id: 'roblox', label: 'Roblox', icon: 'https://upload.wikimedia.org/wikipedia/commons/3/3a/Roblox_player_icon_black.svg', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
+  { id: 'reddit', label: 'Reddit', icon: 'https://upload.wikimedia.org/wikipedia/commons/b/b4/Reddit_logo.svg', domains: ['reddit.com', 'redditmedia.com'] },
+  { id: 'twitter', label: 'X', icon: 'https://upload.wikimedia.org/wikipedia/commons/b/b6/Image_created_with_a_mobile_phone.png', customIconStyle: 'w-5 h-5 object-contain', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
 export default function FiltersView({ profiles, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
@@ -168,25 +168,10 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
         <section className="mb-section-margin">
           <h2 className="font-headline-md text-headline-md text-on-background mb-4">Quick Filters</h2>
           <div className="flex flex-col gap-3">
-              {PREDEFINED_APPS.map(app => {
+              {PREDEFINED_APPS.map((app: any) => {
                 const isFullyBlocked = hasApp(app.domains);
                 const activeCount = getAppActiveCount(app.domains);
                 const isExpanded = expandedApp === app.id;
-                
-                // Construct the logo styling per Stitch design
-                let logoChar = app.label.charAt(0);
-                let logoBg = "bg-white";
-                let logoText = "text-on-surface";
-                
-                if (app.id === 'meta') { logoChar = 'f'; logoText = 'text-[#1877F2]'; }
-                else if (app.id === 'tiktok') { logoChar = 't'; logoBg = 'bg-black'; logoText = 'text-white'; }
-                else if (app.id === 'youtube') { logoChar = '▶'; logoText = 'text-red-600'; }
-                else if (app.id === 'snapchat') { logoBg = 'bg-yellow-400'; logoText = 'text-black'; }
-                else if (app.id === 'discord') { logoBg = 'bg-[#5865F2]'; logoText = 'text-white'; }
-                else if (app.id === 'twitch') { logoBg = 'bg-[#9146FF]'; logoText = 'text-white'; }
-                else if (app.id === 'pinterest') { logoBg = 'bg-[#E60023]'; logoText = 'text-white'; }
-                else if (app.id === 'reddit') { logoChar = 'r'; logoText = 'text-orange-500'; }
-                else if (app.id === 'twitter') { logoChar = 'X'; logoBg = 'bg-black'; logoText = 'text-white'; }
 
                 return (
                   <div key={app.id} className={`w-full rounded-xl border transition-all ${
@@ -199,8 +184,8 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
                       onClick={() => setExpandedApp(isExpanded ? null : app.id)}
                     >
                       <div className="flex items-center gap-4 flex-1">
-                        <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center shadow-sm text-lg font-bold ${logoBg} ${logoText}`}>
-                          {logoChar}
+                        <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center shadow-sm overflow-hidden bg-white`}>
+                          <img src={app.icon} alt={app.label} className={app.customIconStyle || "w-full h-full object-cover"} />
                         </div>
                         <div className="flex flex-col">
                           <span className={`font-body-lg text-body-lg ${
@@ -251,7 +236,7 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
 
                         {/* Individual Domains */}
                         <div className="flex flex-col">
-                          {app.domains.map(domain => {
+                          {app.domains.map((domain: string) => {
                             const isDomainBlocked = (activeProfile.limits || []).includes(domain);
                             return (
                               <div key={domain} className="flex items-center justify-between py-5 px-4 md:px-6 hover:bg-surface-container-lowest/50 border-b border-surface-variant last:border-b-0">
