@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { universalFetch } from './api';
 
 interface ConnectViewProps {
   onConnected: () => void;
@@ -22,7 +23,7 @@ export default function ConnectView({ onConnected }: ConnectViewProps) {
     const authHeader = 'Basic ' + btoa(`admin:${password}`);
     
     try {
-      const res = await fetch(`${finalIp}/stats.json`, {
+      const res = await universalFetch(`${finalIp}/stats.json`, {
         headers: {
           'Authorization': authHeader
         }
