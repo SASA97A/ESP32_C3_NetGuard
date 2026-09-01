@@ -75,114 +75,164 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
       <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 md:p-6 shadow-sm">
         
         {/* Profile Selector */}
-        <div className="flex items-center gap-4 mb-6 pb-6 border-b border-surface-variant overflow-x-auto">
-          {profiles.map((p, idx) => (
-            <button 
-              key={idx}
-              onClick={() => setActiveProfileIdx(idx)}
-              className={`px-4 py-2 rounded-full whitespace-nowrap font-label-md transition-colors ${
-                activeProfileIdx === idx 
-                  ? 'bg-primary text-on-primary' 
-                  : 'bg-surface border border-outline-variant text-on-surface-variant hover:bg-surface-variant'
-              }`}
-            >
-              {idx === 0 ? "Default Group" : (p.name || `Group ${idx + 1}`)}
-            </button>
-          ))}
-        </div>
+        <section className="mb-section-margin">
+          <div className="flex flex-col gap-2">
+            <label htmlFor="profile-select" className="font-label-md text-label-md text-on-surface-variant ml-1">Select Profile</label>
+            <div className="relative">
+              <select 
+                id="profile-select" 
+                value={activeProfileIdx}
+                onChange={(e) => setActiveProfileIdx(Number(e.target.value))}
+                className="w-full appearance-none bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 font-label-md text-label-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors cursor-pointer"
+              >
+                {profiles.map((p, idx) => (
+                  <option key={idx} value={idx}>
+                    {idx === 0 ? "Default" : (p.name || `Group ${idx + 1}`)}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-on-surface-variant">
+                  <span className="material-symbols-outlined">expand_more</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* Timer Mode Setting */}
-        <div className="mb-8 p-4 bg-primary-container/20 rounded-lg border border-primary/20">
-            <h3 className="font-headline-sm text-headline-sm text-on-surface mb-2">Timer Enforcement</h3>
-            <p className="font-body-sm text-on-surface-variant mb-4">When {activeProfile.name || 'this group'} hits its Bedtime schedule:</p>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer p-3 bg-surface border border-outline-variant rounded-lg hover:border-primary transition-colors flex-1">
-                <input 
-                  type="radio" 
-                  name="bedtimeMode" 
-                  checked={(activeProfile.mode || 0) === 0}
-                  onChange={() => onUpdateProfileField(activeProfileIdx, 'mode', 0)}
-                  className="w-4 h-4 text-primary focus:ring-primary"
-                />
-                <span className="font-label-md text-on-surface">Hard Blackout (Offline)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer p-3 bg-surface border border-outline-variant rounded-lg hover:border-primary transition-colors flex-1">
-                <input 
-                  type="radio" 
-                  name="bedtimeMode" 
-                  checked={(activeProfile.mode || 0) === 1}
-                  onChange={() => onUpdateProfileField(activeProfileIdx, 'mode', 1)}
-                  className="w-4 h-4 text-primary focus:ring-primary"
-                />
-                <span className="font-label-md text-on-surface">Soft limits (Block Apps)</span>
-              </label>
-            </div>
-        </div>
-
-        <h3 className="font-headline-sm text-headline-sm text-on-surface mb-4">Quick Filters</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-            {PREDEFINED_APPS.map(app => {
-              const active = hasApp(app.domains);
-              return (
-                <button
-                  key={app.id}
-                  onClick={() => handleToggleApp(app.domains)}
-                  className={`flex items-center justify-between p-4 rounded-xl border transition-all active:scale-95 ${
-                    active 
-                    ? 'bg-error-container text-on-error-container border-error' 
-                    : 'bg-surface text-on-surface border-outline-variant hover:border-primary'
-                  }`}
-                >
-                  <span className="font-label-lg">{app.label}</span>
-                  <span className="material-symbols-outlined">
-                    {active ? 'block' : 'check_circle'}
-                  </span>
-                </button>
-              );
-            })}
-        </div>
-
-        <h3 className="font-headline-sm text-headline-sm text-on-surface mb-4">Custom Limits</h3>
-        <div className="mb-4">
-          <input 
-            type="text" 
-            placeholder="Type a web domain and press Enter (e.g. reddit.com)"
-            onKeyDown={handleCustomAdd}
-            className="w-full bg-surface border border-outline-variant rounded-lg px-4 py-3 font-body-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-8">
-          {(activeProfile.limits || []).map((domain, i) => {
-            // Check if it belongs to a predefined app to grey it out (managed above)
-            const isManaged = PREDEFINED_APPS.some(app => app.domains.includes(domain));
-            return (
-              <span 
-                key={i} 
-                className={`flex items-center gap-2 px-3 py-1 rounded-full font-label-md text-sm border ${
-                  isManaged 
-                  ? 'bg-surface-variant text-on-surface-variant border-transparent' 
-                  : 'bg-error-container text-error border-error-container'
+        <section className="mb-section-margin">
+          <div className="bg-secondary-container rounded-xl p-4">
+            <p className="font-label-md text-label-md text-on-secondary-container mb-3 font-semibold">When {activeProfile.name || 'this group'} hits its Bedtime schedule:</p>
+            <div className="flex gap-stack-gap">
+              <button 
+                onClick={() => onUpdateProfileField(activeProfileIdx, 'mode', 0)}
+                className={`flex-1 border rounded-lg p-3 flex flex-col items-center justify-center text-center transition-colors ${
+                  (activeProfile.mode || 0) === 0 
+                  ? 'bg-primary border-primary relative overflow-hidden shadow-sm' 
+                  : 'bg-surface border-outline-variant hover:bg-surface-container-high'
                 }`}
               >
-                {domain}
-                {!isManaged && (
-                  <button onClick={() => handleCustomRemove(domain)} className="hover:text-on-error transition-colors">
-                    <span className="material-symbols-outlined text-[16px] leading-none">close</span>
-                  </button>
-                )}
-              </span>
-            );
-          })}
-        </div>
+                {(activeProfile.mode || 0) === 0 && <div className="absolute inset-0 bg-white opacity-10"></div>}
+                <span className={`material-symbols-outlined mb-1 ${
+                  (activeProfile.mode || 0) === 0 ? 'text-on-primary' : 'text-on-surface-variant'
+                }`}>wifi_off</span>
+                <span className={`font-label-sm text-label-sm ${
+                  (activeProfile.mode || 0) === 0 ? 'text-on-primary' : 'text-on-surface-variant'
+                }`}>Hard Blackout<br/>(Offline)</span>
+              </button>
 
-        <div className="pt-6 border-t border-surface-variant flex justify-end">
+              <button 
+                onClick={() => onUpdateProfileField(activeProfileIdx, 'mode', 1)}
+                className={`flex-1 border rounded-lg p-3 flex flex-col items-center justify-center text-center transition-colors ${
+                  (activeProfile.mode || 0) === 1 
+                  ? 'bg-primary border-primary relative overflow-hidden shadow-sm' 
+                  : 'bg-surface border-outline-variant hover:bg-surface-container-high'
+                }`}
+              >
+                {(activeProfile.mode || 0) === 1 && <div className="absolute inset-0 bg-white opacity-10"></div>}
+                <span className={`material-symbols-outlined mb-1 ${
+                  (activeProfile.mode || 0) === 1 ? 'text-on-primary' : 'text-on-surface-variant'
+                }`}>app_blocking</span>
+                <span className={`font-label-sm text-label-sm ${
+                  (activeProfile.mode || 0) === 1 ? 'text-on-primary' : 'text-on-surface-variant'
+                }`}>Soft limits<br/>(Block Apps)</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Quick Filters */}
+        <section className="mb-section-margin">
+          <h2 className="font-headline-md text-headline-md text-on-background mb-4">Quick Filters</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+              {PREDEFINED_APPS.map(app => {
+                const active = hasApp(app.domains);
+                
+                // Construct the logo styling per Stitch design
+                let logoChar = app.label.charAt(0);
+                let logoBg = "bg-white";
+                let logoText = "text-on-surface";
+                
+                if (app.id === 'meta') { logoChar = 'f'; logoText = 'text-[#1877F2]'; }
+                else if (app.id === 'tiktok') { logoChar = 't'; logoBg = 'bg-black'; logoText = 'text-white'; }
+                else if (app.id === 'youtube') { logoChar = '▶'; logoText = 'text-red-600'; }
+                else if (app.id === 'reddit') { logoChar = 'r'; logoText = 'text-orange-500'; }
+                else if (app.id === 'twitter') { logoChar = 'X'; logoBg = 'bg-black'; logoText = 'text-white'; }
+
+                return (
+                  <button
+                    key={app.id}
+                    onClick={() => handleToggleApp(app.domains)}
+                    className={`w-full flex items-center justify-between p-4 rounded-lg border active:scale-[0.98] transition-all ${
+                      active 
+                      ? 'bg-[#FEE2E2] border-[#FECACA]' 
+                      : 'bg-surface border-outline-variant hover:bg-surface-container-high'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm text-lg font-bold ${logoBg} ${logoText}`}>
+                        {logoChar}
+                      </div>
+                      <span className={`font-body-lg text-body-lg font-semibold ${
+                        active ? 'text-[#991B1B]' : 'text-on-surface'
+                      }`}>{app.label}</span>
+                    </div>
+                    <span className={`material-symbols-outlined ${
+                      active ? 'text-[#991B1B]' : 'text-on-surface-variant'
+                    }`}>
+                      {active ? 'block' : 'check_circle'}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </section>
+
+        {/* Custom Limits */}
+        <section className="mb-section-margin">
+          <h2 className="font-headline-md text-headline-md text-on-background mb-4">Custom Limits</h2>
+          <div className="relative mb-4">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">language</span>
+            <input 
+              type="text" 
+              placeholder="Type a web domain and press Enter (e.g. reddit.com)"
+              onKeyDown={handleCustomAdd}
+              className="w-full bg-surface-container-low border border-outline-variant rounded-lg pl-10 pr-4 py-3 font-label-md text-label-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-20">
+            {(activeProfile.limits || []).map((domain, i) => {
+              const isManaged = PREDEFINED_APPS.some(app => app.domains.includes(domain));
+              return (
+                <div 
+                  key={i} 
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full font-label-sm text-label-sm border ${
+                    isManaged 
+                    ? 'bg-surface-variant text-on-surface-variant border-outline-variant opacity-70' 
+                    : 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]'
+                  }`}
+                >
+                  {domain}
+                  {isManaged ? (
+                    <span className="material-symbols-outlined text-[14px]">lock</span>
+                  ) : (
+                    <button onClick={() => handleCustomRemove(domain)} className="hover:text-red-800 focus:outline-none ml-1">
+                      <span className="material-symbols-outlined text-[14px]">close</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="fixed bottom-16 md:bottom-20 md:absolute md:rounded-b-xl left-0 w-full bg-surface/90 md:bg-surface backdrop-blur-sm border-t border-outline-variant p-4 z-40">
            <button 
              onClick={onSaveProfiles}
              disabled={savingProfiles}
-             className="bg-primary text-on-primary px-6 py-2 rounded-full font-label-lg shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+             className="w-full bg-primary hover:bg-primary-container text-on-primary hover:text-on-primary-container font-label-md text-label-md py-3.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] disabled:opacity-50"
            >
-             <span className="material-symbols-outlined text-[20px]">save</span>
+             <span className="material-symbols-outlined" style={{fontVariationSettings: "'FILL' 1"}}>save</span>
              {savingProfiles ? 'Applying rules...' : 'Apply App Limits'}
            </button>
         </div>
