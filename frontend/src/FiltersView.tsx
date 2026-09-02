@@ -3,6 +3,7 @@ import type { Profile } from './interfaces';
 
 interface FiltersViewProps {
   profiles: Profile[];
+  hasUnsavedChanges?: boolean;
   onUpdateProfileField: <K extends keyof Profile>(index: number, field: K, value: Profile[K]) => void;
   onSaveProfiles: () => Promise<void>;
   savingProfiles?: boolean;
@@ -21,7 +22,7 @@ const PREDEFINED_APPS = [
   { id: 'twitter', label: 'X', icon: '/icons/x.svg', customIconStyle: 'w-5 h-5 object-contain', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
-export default function FiltersView({ profiles, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
+export default function FiltersView({ profiles, hasUnsavedChanges, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
   const [activeProfileIdx, setActiveProfileIdx] = useState<number>(0);
   const [expandedApp, setExpandedApp] = useState<string | null>(null);
   const activeProfile = profiles[activeProfileIdx];
@@ -90,10 +91,11 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
   if (!activeProfile) return null;
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in w-full">
-      <div className="flex flex-col gap-2">
-        <h2 className="font-headline-lg text-headline-lg text-on-surface">App Limits</h2>
-        <p className="font-body-md text-body-md text-on-surface-variant">Block access to specific apps and websites. Limits only apply when the profile's Bedtime timer is active and set to 'App Limits' mode.</p>
+    <>
+      <div className="flex flex-col gap-6 animate-fade-in w-full pb-32">
+        <div className="flex flex-col gap-2 border-b border-outline-variant pb-4">
+          <h1 className="font-headline-lg text-headline-lg text-on-surface">App Limits</h1>
+        <p className="font-body-md text-body-md text-on-surface-variant">Block access to specific apps and websites. Limits only apply when a profile's Bedtime timer is active and set to 'App Limits' mode.</p>
       </div>
 
       <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 md:p-6 shadow-sm">
@@ -111,7 +113,7 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
               >
                 {profiles.map((p, idx) => (
                   <option key={idx} value={idx}>
-                    {idx === 0 ? "Default" : (p.name || `Group ${idx + 1}`)}
+                    {idx === 0 ? "Default" : (p.name || `Profile ${idx + 1}`)}
                   </option>
                 ))}
               </select>
@@ -122,7 +124,20 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
           </div>
         </section>
 
-        {/* Timer Mode Setting */}
+        {activeProfile.start === -1 || activeProfile.end === -1 ? (
+          <div className="bg-secondary-container text-on-secondary-container p-4 rounded-xl flex items-start gap-3 mb-section-margin">
+            <span className="material-symbols-outlined shrink-0 text-primary">info</span>
+            <div className="flex flex-col">
+              <span className="font-label-md font-bold mb-1">Bedtime Disabled</span>
+              <span className="font-body-md text-sm">
+                App Limits only trigger during an active schedule. Please configure a clock for <b>{activeProfileIdx === 0 ? "Default" : (activeProfile.name || `Profile ${activeProfileIdx + 1}`)}</b> in the Profiles tab before these limits can be applied.
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        <div className={`transition-opacity ${activeProfile.start === -1 || activeProfile.end === -1 ? 'opacity-50 pointer-events-none' : ''}`}>
+          {/* Timer Mode Setting */}
         <section className="mb-section-margin">
           <div className="bg-secondary-container rounded-xl p-4">
             <p className="font-label-md text-label-md text-on-secondary-container mb-3 font-semibold">When {activeProfile.name || 'this group'} hits its Bedtime schedule:</p>
@@ -304,19 +319,25 @@ export default function FiltersView({ profiles, onUpdateProfileField, onSaveProf
             })}
           </div>
         </section>
-
-        <div className="fixed bottom-16 md:bottom-20 md:absolute md:rounded-b-xl left-0 w-full bg-surface/90 md:bg-surface backdrop-blur-sm border-t border-outline-variant p-4 z-40">
-           <button 
-             onClick={onSaveProfiles}
-             disabled={savingProfiles}
-             className="w-full bg-primary hover:bg-primary-container text-on-primary hover:text-on-primary-container font-label-md text-label-md py-3.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] disabled:opacity-50"
-           >
-             <span className="material-symbols-outlined" style={{fontVariationSettings: "'FILL' 1"}}>save</span>
-             {savingProfiles ? 'Applying rules...' : 'Apply App Limits'}
-           </button>
         </div>
-
       </div>
     </div>
+
+      {hasUnsavedChanges && (
+        <button 
+          type="button"
+          onClick={onSaveProfiles}
+          disabled={savingProfiles}
+          className="fixed right-6 z-50 bg-primary text-on-primary w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:opacity-90 active:scale-95 transition-all bottom-24 md:bottom-8 disabled:opacity-50"
+          title="Apply Limits"
+        >
+          {savingProfiles ? (
+            <span className="material-symbols-outlined text-[28px] animate-spin">sync</span>
+          ) : (
+            <span className="material-symbols-outlined text-[28px]" style={{fontVariationSettings: "'FILL' 1"}}>save</span>
+          )}
+        </button>
+      )}
+    </>
   );
 }

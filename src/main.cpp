@@ -222,32 +222,40 @@ static void getMac(uint32_t ip, uint8_t *mac)
       return;
     }
 }
-
 static Dev *getClient(uint32_t ip)
 {
-  for (int i = 0; i < numClients; i++)
-    if (clients[i].ip == ip)
-    {
-      clients[i].lastSeen = millis();
-      return &clients[i];
-    }
-
   uint8_t mbuf[6];
   getMac(ip, mbuf);
   char macBuf[18];
   snprintf(macBuf, sizeof(macBuf), "%02x:%02x:%02x:%02x:%02x:%02x", mbuf[0], mbuf[1], mbuf[2], mbuf[3], mbuf[4], mbuf[5]);
-  String mac = String(macBuf);
+  String currentMac = String(macBuf);
 
-  if (mac.length() > 0 && mac != "00:00:00:00:00:00")
-  {
-    for (int i = 0; i < numClients; i++)
-    {
-      if (clients[i].mac.equalsIgnoreCase(mac))
-      {
+  // 1. Opportunistic MAC-first binding (Self-Healing)
+  if (currentMac != "00:00:00:00:00:00") {
+    for (int i = 0; i < numClients; i++) {
+      if (clients[i].mac.equalsIgnoreCase(currentMac)) {
         clients[i].ip = ip;
         clients[i].lastSeen = millis();
+        // Clean up any IP duplicates/ghosts mapped to this IP
+        for (int j = 0; j < numClients; j++) {
+            if (i != j && clients[j].ip == ip) {
+                clients[j].ip = 0; 
+            }
+        }
         return &clients[i];
       }
+    }
+  }
+
+  // 2. IP-first fallback (For ghost entries that don't have ARP yet)
+  for (int i = 0; i < numClients; i++) {
+    if (clients[i].ip == ip) {
+      clients[i].lastSeen = millis();
+      // If we found the true MAC dynamically, write it to the ghost to heal it
+      if (currentMac != "00:00:00:00:00:00" && clients[i].mac == "00:00:00:00:00:00") {
+         clients[i].mac = currentMac;
+      }
+      return &clients[i];
     }
   }
 
@@ -264,9 +272,10 @@ static Dev *getClient(uint32_t ip)
   {
     numClients++;
   }
+
   Dev *c = &clients[slot];
   c->ip = ip;
-  c->mac = mac;
+  c->mac = currentMac;
   c->currentProfileId = 0;
   c->manualBlock = false;
   c->lastSeen = millis();
@@ -342,14 +351,18 @@ void setupTime() {
 
 bool isTimerActive(uint8_t profileId) {
   if (profileId >= numProfiles) return false;
+
+  int start = profiles[profileId].startBedtimeMinutes;
+  int end = profiles[profileId].endBedtimeMinutes;
+
+  if (start == -1 || end == -1) {
+    return false;
+  }
   
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo, 10)) return false; // Fail open if no time
 
   int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  int start = profiles[profileId].startBedtimeMinutes;
-  int end = profiles[profileId].endBedtimeMinutes;
-  
   return checkTimeWindow(currentMinutes, start, end);
 }
 

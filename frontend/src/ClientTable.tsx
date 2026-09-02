@@ -45,7 +45,15 @@ function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
     onUpdate(client.mac, client.profile, name, !client.manualBlock);
   };
 
-  const isBlocked = Boolean(client.manualBlock || client.blocked);
+  const assignedProfile = profiles[client.profile] || profiles[0];
+  const isAppLimitsMode = assignedProfile?.mode === 1;
+  const hasAppLimits = assignedProfile?.limits && assignedProfile.limits.length > 0;
+
+  const isManualBlocked = Boolean(client.manualBlock);
+  const isTimerHardBlocked = Boolean(!client.manualBlock && client.blocked && !isAppLimitsMode);
+  const isTimerLimited = Boolean(!client.manualBlock && client.blocked && isAppLimitsMode && hasAppLimits);
+
+  const isActuallyBlocked = isManualBlocked || isTimerHardBlocked;
 
   return (
     <tr className="hover:bg-surface-container-low transition-colors group flex flex-col p-4 md:p-4 gap-3 border-b border-surface-variant md:table-row md:border-b-0">
@@ -66,9 +74,11 @@ function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
                 className="bg-transparent border-none p-0 focus:ring-0 font-body-md text-on-surface w-32 md:w-48 cursor-text hover:bg-surface-variant px-1 rounded transition-colors"
               />
               <span className={`inline-block px-2 py-0.5 rounded font-label-sm text-[10px] font-bold mt-1 ${
-                isBlocked ? "status-blocked" : "status-allowed"
+                isActuallyBlocked ? "bg-error-container text-on-error-container border border-error/50" : 
+                isTimerLimited ? "bg-[#FEF9C3] text-[#854d0e] border border-[#FDE047]" : 
+                "bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0]"
               }`}>
-                {isBlocked ? "BLOCKED" : "ALLOWED"}
+                {isActuallyBlocked ? "BLOCKED" : isTimerLimited ? "LIMITED" : "ALLOWED"}
               </span>
             </div>
           </div>
@@ -116,11 +126,11 @@ function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
             <div className="text-xs text-outline">{client.mac}</div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-label-sm text-outline uppercase">Group:</label>
+            <label className="text-label-sm text-outline uppercase">Profile:</label>
             <select
               value={client.profile}
               onChange={handleProfileChange}
-              className="bg-surface border border-outline-variant rounded-lg px-2 py-1 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
+              className="bg-transparent border-none p-0 focus:ring-0 font-body-md text-primary w-32 cursor-pointer hover:bg-surface-variant px-1 rounded transition-colors text-right md:text-left"
             >
               {profiles.map((p, idx) => (
                 <option key={idx} value={idx}>
@@ -180,9 +190,10 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
 
   return (
     <section className="space-y-stack-gap">
-      <h2 className="font-headline-md text-headline-md text-on-background border-b border-outline-variant pb-2">
-        Connected Clients ({validClients.length})
-      </h2>
+      <div className="flex flex-col gap-2 border-b border-outline-variant pb-4">
+        <h1 className="font-headline-lg text-headline-lg text-on-surface">Connected Clients</h1>
+        <p className="font-body-md text-body-md text-on-surface-variant">Identify devices on your network, assign access profiles, or set manual blocks.</p>
+      </div>
       <div className="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -241,11 +252,11 @@ export default function ClientTable({ clients, profiles, onRefresh }: ClientTabl
             </div>
             <div className="w-full md:w-auto">
               <label className="block font-label-sm text-label-sm text-on-surface-variant mb-1">
-                Group
+                Profile
               </label>
               <select
                 value={addProfile}
-                onChange={(e) => setAddProfile(Number(e.target.value))}
+                onChange={(e) => setAddProfile(parseInt(e.target.value, 10))}
                 className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
               >
                 {profiles.map((p, idx) => (

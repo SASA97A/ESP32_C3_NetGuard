@@ -208,7 +208,10 @@ export default function SettingsView() {
 
   return (
     <main className="flex-grow px-container-padding py-section-margin w-full max-w-3xl mx-auto space-y-stack-gap">
-      <h1 className="font-headline-lg text-headline-lg mb-stack-gap">Settings</h1>
+      <div className="flex flex-col gap-2 mb-stack-gap border-b border-outline-variant pb-4">
+        <h1 className="font-headline-lg text-headline-lg text-on-surface">Settings</h1>
+        <p className="font-body-md text-body-md text-on-surface-variant">Configure system timezone, update administrator credentials, and manage firmware.</p>
+      </div>
 
       {/* Timezone Card */}
       <section className="bg-surface-container-lowest border border-outline-variant rounded-lg p-container-padding transition-all">

@@ -21,6 +21,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
   const [isFormInitialized, setIsFormInitialized] = useState(false);
   const [savingProfiles, setSavingProfiles] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<number | null>(null);
   const [removingIdx, setRemovingIdx] = useState<number | null>(null);
 
@@ -74,6 +75,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
 
       if (res.ok) {
         setSaveMessage('Profiles saved successfully!');
+        setIsDirty(false);
         setTimeout(() => setSaveMessage(null), 3000);
         fetchStats();
       } else {
@@ -96,14 +98,16 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
       updated[index] = { ...updated[index], [field]: value };
       return updated;
     });
+    setIsDirty(true);
   };
 
   const handleAddProfile = () => {
     if (profiles.length >= 10) {
-      alert("Maximum 10 groups allowed.");
+      alert("Maximum 10 profiles allowed.");
       return;
     }
-    setProfiles([...profiles, { name: "New Group", start: -1, end: -1, mode: 0, dns: "1.1.1.1", limits: [] }]);
+    setProfiles([...profiles, { name: "New Profile", start: -1, end: -1, mode: 0, dns: "1.1.1.1", limits: [] }]);
+    setIsDirty(true);
   };
 
   const handleRemoveProfile = (idx: number) => {
@@ -120,6 +124,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
     setTimeout(() => {
       setProfiles((prev) => prev.filter((_, i) => i !== idxToRemove));
       setRemovingIdx(null);
+      setIsDirty(true);
     }, 300);
   };
 
@@ -217,9 +222,32 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
     : [];
   
   const totalClients = validDashClients.length;
-  const allowedClients = validDashClients.filter(c => !c.blocked && !c.manualBlock).length;
-  const blockedClients = totalClients - allowedClients;
+  
+  let actuallyBlockedClients = 0;
+  let timerLimitedClients = 0;
+
+  validDashClients.forEach(c => {
+    if (c.manualBlock) {
+      actuallyBlockedClients++;
+    } else if (c.blocked) {
+      const activeProfilesList = profiles.length > 0 ? profiles : (stats?.profiles || []);
+      const prof = activeProfilesList[c.profile] || activeProfilesList[0];
+      const isAppLimitsMode = prof?.mode === 1;
+      const hasAppLimits = prof?.limits && prof.limits.length > 0;
+      
+      if (!isAppLimitsMode) {
+        actuallyBlockedClients++; // Hard Blackout
+      } else if (hasAppLimits) {
+        timerLimitedClients++; // Soft Limits
+      }
+    }
+  });
+
+  const allowedClients = totalClients - actuallyBlockedClients - timerLimitedClients;
+
   const allowedPct = totalClients > 0 ? Math.round((allowedClients / totalClients) * 100) : 100;
+  const limitedPct = totalClients > 0 ? Math.round((timerLimitedClients / totalClients) * 100) : 0;
+  const allowedAndLimitedPct = allowedPct + limitedPct;
 
   const showOverview = currentTab === 'home';
   const showProfilesOnly = currentTab === 'groups' || currentTab === 'profiles';
@@ -243,12 +271,17 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
 
       {showOverview && (
         <>
+          <div className="flex flex-col gap-2 mb-6 border-b border-outline-variant pb-4">
+            <h1 className="font-headline-lg text-headline-lg text-on-surface">Dashboard</h1>
+            <p className="font-body-md text-body-md text-on-surface-variant">Monitor real-time network status and connected devices at a glance.</p>
+          </div>
+
           {/* Hero Section: Connected Clients Donut Chart */}
           <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col items-center">
             <h2 className="font-headline-md text-headline-md mb-4 text-on-surface">Connected Clients</h2>
             <div
               className="relative w-48 h-48 rounded-full flex items-center justify-center mb-6"
-              style={{ background: `conic-gradient(#10B981 0% ${allowedPct}%, #EF4444 ${allowedPct}% 100%)` }}
+              style={{ background: `conic-gradient(#10B981 0% ${allowedPct}%, #EAB308 ${allowedPct}% ${allowedAndLimitedPct}%, #EF4444 ${allowedAndLimitedPct}% 100%)` }}
             >
               <div className="absolute inset-2 bg-surface-container-lowest rounded-full flex flex-col items-center justify-center">
                 <span className="font-headline-lg text-headline-lg text-on-surface">{totalClients}</span>
@@ -263,9 +296,15 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#EAB308]"></div>
+                <div className="flex flex-col">
+                  <span className="font-label-md text-label-md text-[#854D0E]">{timerLimitedClients} Limited</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#EF4444]"></div>
                 <div className="flex flex-col">
-                  <span className="font-label-md text-label-md text-[#991B1B]">{blockedClients} Blocked</span>
+                  <span className="font-label-md text-label-md text-[#991B1B]">{actuallyBlockedClients} Blocked</span>
                 </div>
               </div>
             </div>
@@ -311,7 +350,6 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
           onUpdateProfileField={updateProfileField}
           onSaveProfiles={() => handleSaveProfiles()}
           savingProfiles={savingProfiles}
-          saveMessage={saveMessage}
           onAddProfile={handleAddProfile}
           onRemoveProfile={handleRemoveProfile}
           removingIdx={removingIdx}
@@ -332,7 +370,24 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
           onUpdateProfileField={updateProfileField}
           onSaveProfiles={() => handleSaveProfiles()}
           savingProfiles={savingProfiles}
+          hasUnsavedChanges={isDirty}
         />
+      )}
+
+      {/* Global Snackbar / Toast */}
+      {saveMessage && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-max max-w-[90vw] pointer-events-none">
+          <div className={`animate-fade-in-down flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg pointer-events-auto ${
+            saveMessage.includes('failed') ? 'bg-error text-on-error' : 'bg-primary text-on-primary'
+          }`}>
+            <span className="material-symbols-outlined text-[20px]">
+              {saveMessage.includes('failed') ? 'error' : 'check_circle'}
+            </span>
+            <span className="font-label-md text-label-md whitespace-nowrap">
+              {saveMessage}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Confirmation Modal */}
@@ -341,13 +396,13 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
           <div className="bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant p-6 max-w-sm w-full mx-auto space-y-4">
             <div className="flex items-center gap-3 text-error">
               <span className="material-symbols-outlined text-[24px]">warning</span>
-              <h3 className="font-headline-md text-headline-md text-on-surface">Delete Group?</h3>
+              <h3 className="font-headline-md text-headline-md text-on-surface">Delete Profile?</h3>
             </div>
             
             <p className="font-body-md text-body-md text-on-surface-variant">
               {(stats?.clients || []).filter(c => c.profile === pendingRemove).length > 0 
-                ? `WARNING: There are ${(stats?.clients || []).filter(c => c.profile === pendingRemove).length} device(s) mapped to this group. If you delete it, they will default out to the "Default" group. Are you absolutely certain?`
-                : "Are you sure you want to remove this group?"}
+                ? `WARNING: There are ${(stats?.clients || []).filter(c => c.profile === pendingRemove).length} device(s) mapped to this profile. If you delete it, they will default out to the "Default" profile. Are you absolutely certain?`
+                : "Are you sure you want to remove this profile?"}
             </p>
             
             <div className="flex gap-3 pt-2">
@@ -358,10 +413,10 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
                 Cancel
               </button>
               <button 
-                className="flex-1 bg-error text-on-error font-label-md text-label-md px-4 py-2 rounded-lg hover:opacity-90 active:scale-95 transition-all"
                 onClick={confirmRemoveProfile}
+                className="flex-1 bg-error hover:bg-error/90 text-on-error font-label-md text-label-md py-2.5 rounded-lg transition-colors active:scale-95"
               >
-                Delete Group
+                Delete Profile
               </button>
             </div>
           </div>

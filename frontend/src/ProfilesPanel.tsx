@@ -22,7 +22,6 @@ interface ProfilesPanelProps {
   onUpdateProfileField: <K extends keyof Profile>(index: number, field: K, value: Profile[K]) => void;
   onSaveProfiles: () => Promise<void>;
   savingProfiles?: boolean;
-  saveMessage?: string | null;
   onAddProfile?: () => void;
   onRemoveProfile?: (idx: number) => void;
   removingIdx?: number | null;
@@ -33,7 +32,6 @@ export default function ProfilesPanel({
   onUpdateProfileField,
   onSaveProfiles,
   savingProfiles = false,
-  saveMessage = null,
   onAddProfile,
   onRemoveProfile,
   removingIdx = null,
@@ -51,18 +49,13 @@ export default function ProfilesPanel({
 
   return (
     <section className="space-y-stack-gap pb-32">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-outline-variant pb-2">
-        <div>
-          <h2 className="font-headline-md text-headline-md text-on-background">Access Profiles</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-outline-variant pb-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-headline-lg text-headline-lg text-on-surface">Access Profiles</h1>
           <p className="font-body-md text-body-md text-on-surface-variant">
-            Manage network access schedules and DNS routing.
+            Manage network access schedules and default DNS routing for groups.
           </p>
         </div>
-        {saveMessage && (
-          <span className={`font-label-md text-label-md ${saveMessage.includes('failed') ? 'text-error' : 'text-[#065F46]'}`}>
-            {saveMessage}
-          </span>
-        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-stack-gap">
@@ -82,17 +75,22 @@ export default function ProfilesPanel({
                 </h3>
                 {idx === 0 && (
                   <span className="bg-surface-variant text-on-surface-variant px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-                    Base Group
+                    Base Profile
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {onRemoveProfile && idx !== 0 && (
+                {onRemoveProfile && (
                   <button
                     type="button"
-                    onClick={() => onRemoveProfile(idx)}
-                    className="text-error hover:bg-error-container rounded-full p-3 transition-colors flex items-center justify-center active:scale-95"
-                    title="Remove Profile"
+                    onClick={() => idx !== 0 && onRemoveProfile(idx)}
+                    disabled={idx === 0}
+                    className={`rounded-full p-3 transition-colors flex items-center justify-center ${
+                      idx === 0 
+                        ? 'text-on-surface-variant opacity-30 cursor-not-allowed' 
+                        : 'text-error hover:bg-error-container active:scale-95'
+                    }`}
+                    title={idx === 0 ? "Cannot remove Base Profile" : "Remove Profile"}
                   >
                     <span className="material-symbols-outlined text-[20px]">delete</span>
                   </button>
@@ -110,7 +108,7 @@ export default function ProfilesPanel({
                   value={idx === 0 ? "Default" : (prof.name || '')}
                   disabled={idx === 0 || editingIdx !== idx}
                   onChange={(e) => onUpdateProfileField(idx, 'name', e.target.value)}
-                  placeholder={`Group ${idx + 1}`}
+                  placeholder={`Profile ${idx + 1}`}
                   className={`w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary transition-opacity ${
                     idx === 0 || editingIdx !== idx ? 'opacity-50 bg-surface-container-low cursor-not-allowed' : ''
                   }`}
@@ -208,10 +206,10 @@ export default function ProfilesPanel({
         <button
           type="button"
           onClick={onAddProfile}
-          className="fixed right-6 z-50 bg-secondary-container text-on-secondary-container flex items-center gap-2 px-4 py-3 rounded-full shadow-lg hover:opacity-90 active:scale-95 transition-all bottom-24 md:bottom-8"
+          className="fixed right-6 z-50 bg-primary text-on-primary w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:opacity-90 active:scale-95 transition-all bottom-24 md:bottom-8"
+          title="Add Profile"
         >
-          <span className="material-symbols-outlined">add</span>
-          <span className="font-label-md">Add Group</span>
+          <span className="material-symbols-outlined text-[28px]">add</span>
         </button>
       )}
     </section>

@@ -7,49 +7,47 @@ import SettingsView from './SettingsView';
 function SidebarNav() {
   const loc = useLocation();
   const act = loc.pathname;
+  
+  const getNavClass = (isActive: boolean) => 
+    `flex items-center gap-3 rounded-lg px-4 py-3 active:scale-95 transition-all text-left ${
+      isActive 
+        ? 'bg-primary text-on-primary hover:opacity-90 shadow-sm' 
+        : 'text-on-surface-variant hover:bg-surface-variant hover:text-on-surface'
+    }`;
+
   return (
     <aside className="hidden md:flex fixed left-0 top-14 bottom-0 w-64 bg-surface border-r border-outline-variant flex-col p-4 gap-2">
       <Link
         to="/home"
-        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/home' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
-        }`}
+        className={getNavClass(act === '/home')}
       >
         <span className="material-symbols-outlined" data-icon="home" style={act === '/home' ? { fontVariationSettings: "'FILL' 1" } : undefined}>home</span>
         <span className="font-label-md text-label-md">Home</span>
       </Link>
       <Link
         to="/profiles"
-        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/profiles' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
-        }`}
+        className={getNavClass(act === '/profiles')}
       >
         <span className="material-symbols-outlined" data-icon="tune" style={act === '/profiles' ? { fontVariationSettings: "'FILL' 1" } : undefined}>tune</span>
         <span className="font-label-md text-label-md">Profiles</span>
       </Link>
       <Link
         to="/filters"
-        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/filters' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
-        }`}
+        className={getNavClass(act === '/filters')}
       >
         <span className="material-symbols-outlined" data-icon="filter_alt" style={act === '/filters' ? { fontVariationSettings: "'FILL' 1" } : undefined}>filter_alt</span>
         <span className="font-label-md text-label-md">App Limits</span>
       </Link>
       <Link
         to="/clients"
-        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/clients' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
-        }`}
+        className={getNavClass(act === '/clients')}
       >
         <span className="material-symbols-outlined" data-icon="devices" style={act === '/clients' ? { fontVariationSettings: "'FILL' 1" } : undefined}>devices</span>
         <span className="font-label-md text-label-md">Clients</span>
       </Link>
       <Link
         to="/settings"
-        className={`flex items-center gap-3 rounded-lg px-4 py-3 hover:bg-surface-container-low active:scale-95 transition-transform text-left ${
-          act === '/settings' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'
-        }`}
+        className={getNavClass(act === '/settings')}
       >
         <span className="material-symbols-outlined" data-icon="settings" style={act === '/settings' ? { fontVariationSettings: "'FILL' 1" } : undefined}>settings</span>
         <span className="font-label-md text-label-md">Settings</span>
