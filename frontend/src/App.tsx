@@ -9,7 +9,7 @@ function SidebarNav() {
   const act = loc.pathname;
   
   const getNavClass = (isActive: boolean) => 
-    `flex items-center gap-3 rounded-lg px-4 py-3 active:scale-95 transition-all text-left ${
+    `w-full flex items-center gap-3 rounded-lg px-4 py-3 active:scale-95 transition-all text-left ${
       isActive 
         ? 'bg-primary text-on-primary hover:opacity-90 shadow-sm' 
         : 'text-on-surface-variant hover:bg-surface-variant hover:text-on-surface'
