@@ -5,6 +5,11 @@
 # Generated blocklist (build it with tools/build_blocklist.py)
 data/blocklist.bin
 
+# Compile Outputs
+data/*
+!data/.gitkeep
+desktop-app/node_modules/
+
 # WiFi credentials (copy src/secrets.example.h -> src/secrets.h)
 src/secrets.h
 
@@ -13,6 +18,7 @@ src/secrets.h
 tools/__pycache__/
 
 # AI Planning and Logs
+docs/superpowers/
 AGENTS.md
 task*.md
 *.log

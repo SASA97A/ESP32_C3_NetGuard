@@ -120,8 +120,8 @@ function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
       <td className="p-0 md:px-4 md:py-3 flex flex-col md:flex-row md:items-center justify-between gap-2 md:table-cell md:align-middle">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
           <div className="font-label-md text-label-md font-mono text-secondary">
-            <div className={`text-on-surface ${!client.ip || client.ip === '0.0.0.0' || client.ip === '0' ? 'text-on-surface-variant italic' : ''}`}>
-              {!client.ip || client.ip === '0.0.0.0' || client.ip === '0' ? 'Offline / Pending' : client.ip}
+            <div className={`text-on-surface ${!client.ip || client.ip === '0.0.0.0' || client.ip === '0' ? 'text-on-surface-variant' : ''}`}>
+              {!client.ip || client.ip === '0.0.0.0' || client.ip === '0' ? 'Pending' : client.ip}
             </div>
             <div className="text-xs text-outline">{client.mac}</div>
           </div>
