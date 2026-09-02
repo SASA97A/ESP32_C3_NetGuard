@@ -1,4 +1,4 @@
-name: Build and Release ESP32 Firmware
+name: Unified Build and Release
 
 on:
   push:
@@ -8,13 +8,17 @@ on:
       - 'src/**'
       - 'platformio.ini'
       - 'partitions.csv'
+      - 'frontend/**'
+      - 'desktop-app/**'
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  firmware:
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump_version.outputs.NEW_VERSION }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -44,6 +48,7 @@ jobs:
           git push
           
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -65,10 +70,73 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.NEW_VERSION }}
-          name: Firmware Release ${{ env.NEW_VERSION }}
+          name: Release ${{ env.NEW_VERSION }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: .pio/build/c3/firmware.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  desktop:
+    needs: firmware
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable (macOS)
+        shell: bash
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        if: matrix.platform == 'macos-latest'
+
+      - name: Install Rust stable (Linux/Windows)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: matrix.platform != 'macos-latest'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libwebkit2gtk-4.0-dev
+        
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+        
+      - name: Install desktop wrapper dependencies
+        working-directory: desktop-app
+        run: npm install
+        
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop-app
+          args: ${{ matrix.args }}
+
+      - name: Upload to Multi-Platform GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.firmware.outputs.new_version }}
+          files: |
+            desktop-app/src-tauri/target/**/bundle/dmg/*.dmg
+            desktop-app/src-tauri/target/**/bundle/appimage/*.AppImage
+            desktop-app/src-tauri/target/**/bundle/deb/*.deb
+            desktop-app/src-tauri/target/**/bundle/nsis/*.exe
