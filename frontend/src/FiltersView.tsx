@@ -11,15 +11,15 @@ interface FiltersViewProps {
 
 const PREDEFINED_APPS = [
   { id: 'meta', label: 'Meta', icon: '/icons/meta.svg', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
-  { id: 'tiktok', label: 'TikTok', icon: '/icons/tiktok.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
-  { id: 'youtube', label: 'YouTube', icon: '/icons/youtube.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
-  { id: 'snapchat', label: 'Snapchat', icon: '/icons/snapchat.svg', customIconStyle: 'w-7 h-7 object-contain', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
-  { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', customIconStyle: 'w-7 h-7 object-contain', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
-  { id: 'twitch', label: 'Twitch', icon: '/icons/twitch.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
-  { id: 'pinterest', label: 'Pinterest', icon: '/icons/pinterest.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['pinterest.com', 'pinimg.com'] },
-  { id: 'roblox', label: 'Roblox', icon: '/icons/roblox.svg', customIconStyle: 'w-6 h-6 object-contain', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
-  { id: 'reddit', label: 'Reddit', icon: '/icons/reddit.svg', customIconStyle: 'w-8 h-8 object-contain', domains: ['reddit.com', 'redditmedia.com'] },
-  { id: 'twitter', label: 'X', icon: '/icons/x.svg', customIconStyle: 'w-5 h-5 object-contain', domains: ['twitter.com', 'twimg.com', 'x.com'] }
+  { id: 'tiktok', label: 'TikTok', icon: '/icons/tiktok.svg', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
+  { id: 'youtube', label: 'YouTube', icon: '/icons/youtube.svg', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
+  { id: 'snapchat', label: 'Snapchat', icon: '/icons/snapchat.svg', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
+  { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
+  { id: 'twitch', label: 'Twitch', icon: '/icons/twitch.svg', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { id: 'pinterest', label: 'Pinterest', icon: '/icons/pinterest.svg', domains: ['pinterest.com', 'pinimg.com'] },
+  { id: 'roblox', label: 'Roblox', icon: '/icons/roblox.svg', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
+  { id: 'reddit', label: 'Reddit', icon: '/icons/reddit.svg', domains: ['reddit.com', 'redditmedia.com'] },
+  { id: 'twitter', label: 'X', icon: '/icons/x.svg', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
 export default function FiltersView({ profiles, hasUnsavedChanges, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {
@@ -138,10 +138,10 @@ export default function FiltersView({ profiles, hasUnsavedChanges, onUpdateProfi
 
         <div className={`transition-opacity ${activeProfile.start === -1 || activeProfile.end === -1 ? 'opacity-50 pointer-events-none' : ''}`}>
           {/* Timer Mode Setting */}
-        <section className="mb-section-margin">
-          <div className="bg-secondary-container rounded-xl p-4">
-            <p className="font-label-md text-label-md text-on-secondary-container mb-3 font-semibold">When {activeProfile.name || 'this group'} hits its Bedtime schedule:</p>
-            <div className="flex gap-stack-gap">
+          <section className="mb-section-margin">
+            <div className="bg-secondary-container rounded-xl p-4">
+              <p className="font-label-md text-label-md text-on-secondary-container mb-3 font-normal">When {activeProfile.name || 'this group'} hits its Bedtime schedule:</p>
+              <div className="flex gap-stack-gap">
               <button 
                 onClick={() => onUpdateProfileField(activeProfileIdx, 'mode', 0)}
                 className={`flex-1 border rounded-lg p-3 flex flex-col items-center justify-center text-center transition-colors ${
@@ -199,8 +199,8 @@ export default function FiltersView({ profiles, hasUnsavedChanges, onUpdateProfi
                       onClick={() => setExpandedApp(isExpanded ? null : app.id)}
                     >
                       <div className="flex items-center gap-4 flex-1">
-                        <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center shadow-sm overflow-hidden bg-white`}>
-                          <img src={app.icon} alt={app.label} className={app.customIconStyle || "w-full h-full object-cover"} />
+                        <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center`}>
+                          <img src={app.icon} alt={app.label} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex flex-col">
                           <span className={`font-body-lg text-body-lg ${
