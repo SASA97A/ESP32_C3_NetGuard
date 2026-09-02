@@ -179,7 +179,8 @@ static void removeCustom(String d)
 }
 
 // ---- profiles & clients ----
-struct Profile {
+struct Profile
+{
   String name;
   int startBedtimeMinutes; // Minutes since midnight (e.g. 1260 for 21:00)
   int endBedtimeMinutes;   // (e.g. 420 for 07:00)
@@ -231,16 +232,21 @@ static Dev *getClient(uint32_t ip)
   String currentMac = String(macBuf);
 
   // 1. Opportunistic MAC-first binding (Self-Healing)
-  if (currentMac != "00:00:00:00:00:00") {
-    for (int i = 0; i < numClients; i++) {
-      if (clients[i].mac.equalsIgnoreCase(currentMac)) {
+  if (currentMac != "00:00:00:00:00:00")
+  {
+    for (int i = 0; i < numClients; i++)
+    {
+      if (clients[i].mac.equalsIgnoreCase(currentMac))
+      {
         clients[i].ip = ip;
         clients[i].lastSeen = millis();
         // Clean up any IP duplicates/ghosts mapped to this IP
-        for (int j = 0; j < numClients; j++) {
-            if (i != j && clients[j].ip == ip) {
-                clients[j].ip = 0; 
-            }
+        for (int j = 0; j < numClients; j++)
+        {
+          if (i != j && clients[j].ip == ip)
+          {
+            clients[j].ip = 0;
+          }
         }
         return &clients[i];
       }
@@ -248,12 +254,15 @@ static Dev *getClient(uint32_t ip)
   }
 
   // 2. IP-first fallback (For ghost entries that don't have ARP yet)
-  for (int i = 0; i < numClients; i++) {
-    if (clients[i].ip == ip) {
+  for (int i = 0; i < numClients; i++)
+  {
+    if (clients[i].ip == ip)
+    {
       clients[i].lastSeen = millis();
       // If we found the true MAC dynamically, write it to the ghost to heal it
-      if (currentMac != "00:00:00:00:00:00" && clients[i].mac == "00:00:00:00:00:00") {
-         clients[i].mac = currentMac;
+      if (currentMac != "00:00:00:00:00:00" && clients[i].mac == "00:00:00:00:00:00")
+      {
+        clients[i].mac = currentMac;
       }
       return &clients[i];
     }
@@ -341,54 +350,68 @@ static int buildBlocked(uint8_t *pkt, int qend, uint16_t qtype)
   return qend;
 }
 
-void setupTime() {
-  if (timezoneStr.length() == 0) {
+void setupTime()
+{
+  if (timezoneStr.length() == 0)
+  {
     timezoneStr = "UTC0"; // Fallback
   }
   sntp_servermode_dhcp(1); // Enable DHCP provided NTP if available
   configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
 }
 
-bool isTimerActive(uint8_t profileId) {
-  if (profileId >= numProfiles) return false;
+bool isTimerActive(uint8_t profileId)
+{
+  if (profileId >= numProfiles)
+    return false;
 
   int start = profiles[profileId].startBedtimeMinutes;
   int end = profiles[profileId].endBedtimeMinutes;
 
-  if (start == -1 || end == -1) {
+  if (start == -1 || end == -1)
+  {
     return false;
   }
-  
+
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo, 10)) return false; // Fail open if no time
+  if (!getLocalTime(&timeinfo, 10))
+    return false; // Fail open if no time
 
   int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
   return checkTimeWindow(currentMinutes, start, end);
 }
 
-bool inSoftBlockList(uint8_t pid, const char* domain, size_t len) {
-    if (len == 0 || pid >= numProfiles) return false;
-    
-    // Hash full domain first
-    uint64_t h = fnv40(domain, len);
-    for (int i = 0; i < numProfileAppLimits[pid]; i++) {
-        if (profileAppLimitsHash[pid][i] == h) return true;
-    }
-    
-    // Check subdomains
-    int i = 0;
-    while(i < len) {
-        if (domain[i] == '.') {
-            const char* sub = domain + i + 1;
-            size_t subLen = len - i - 1;
-            h = fnv40(sub, subLen);
-            for (int k = 0; k < numProfileAppLimits[pid]; k++) {
-                if (profileAppLimitsHash[pid][k] == h) return true;
-            }
-        }
-        i++;
-    }
+bool inSoftBlockList(uint8_t pid, const char *domain, size_t len)
+{
+  if (len == 0 || pid >= numProfiles)
     return false;
+
+  // Hash full domain first
+  uint64_t h = fnv40(domain, len);
+  for (int i = 0; i < numProfileAppLimits[pid]; i++)
+  {
+    if (profileAppLimitsHash[pid][i] == h)
+      return true;
+  }
+
+  // Check subdomains
+  int i = 0;
+  while (i < len)
+  {
+    if (domain[i] == '.')
+    {
+      const char *sub = domain + i + 1;
+      size_t subLen = len - i - 1;
+      h = fnv40(sub, subLen);
+      for (int k = 0; k < numProfileAppLimits[pid]; k++)
+      {
+        if (profileAppLimitsHash[pid][k] == h)
+          return true;
+      }
+    }
+    i++;
+  }
+  return false;
 }
 
 // ---- async DNS forwarding ----
@@ -467,13 +490,18 @@ static void handleDns()
 
   Dev *c = getClient((uint32_t)cip);
   uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
-  if (pid >= numProfiles) pid = 0;
+  if (pid >= numProfiles)
+    pid = 0;
 
   bool blocked = c ? c->manualBlock : false;
-  if (!blocked && isTimerActive(pid)) {
-    if (profiles[pid].bedtimeMode == 0) {
+  if (!blocked && isTimerActive(pid))
+  {
+    if (profiles[pid].bedtimeMode == 0)
+    {
       blocked = true;
-    } else {
+    }
+    else
+    {
       blocked = inSoftBlockList(pid, domain, dl);
     }
   }
@@ -489,7 +517,8 @@ static void handleDns()
   else
   {
     IPAddress pDNS = profiles[pid].upstreamDNS;
-    if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
+    if ((uint32_t)pDNS == 0)
+      pDNS = IPAddress(1, 1, 1, 1); // Sanity check fallback
 
     int slot = findFreeSlot();
     if (slot < 0)
@@ -595,18 +624,24 @@ static void handleTcpDns()
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
   uint8_t pid = c ? c->currentProfileId : 0;
-  if (pid >= numProfiles) pid = 0;
+  if (pid >= numProfiles)
+    pid = 0;
 
   bool blocked = c ? c->manualBlock : false;
-  if (!blocked && isTimerActive(pid)) {
-    if (profiles[pid].bedtimeMode == 0) {
+  if (!blocked && isTimerActive(pid))
+  {
+    if (profiles[pid].bedtimeMode == 0)
+    {
       blocked = true;
-    } else {
+    }
+    else
+    {
       blocked = inSoftBlockList(pid, domain, dl);
     }
   }
   IPAddress pDNS = profiles[pid].upstreamDNS;
-  if ((uint32_t)pDNS == 0) pDNS = IPAddress(1,1,1,1); // Sanity check fallback
+  if ((uint32_t)pDNS == 0)
+    pDNS = IPAddress(1, 1, 1, 1); // Sanity check fallback
 
   int rlen = blocked ? buildBlocked(tcpBuf, qend, qtype) : forwardUpstreamSync(tcpBuf, total, pDNS);
   if (blocked)
@@ -884,7 +919,8 @@ static String jesc(const String &s)
   return o;
 }
 
-static void sendCorsHeaders() {
+static void sendCorsHeaders()
+{
   web.sendHeader("Access-Control-Allow-Origin", "*");
   web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   web.sendHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -941,9 +977,10 @@ static void handleStats()
          ",\"mode\":" + String(profiles[i].bedtimeMode) +
          ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"" +
          ",\"limits\":[";
-    for (int k = 0; k < numProfileAppLimits[i]; k++) {
-        j += (k ? "," : "");
-        j += "\"" + jesc(profileAppLimitsStr[i][k]) + "\"";
+    for (int k = 0; k < numProfileAppLimits[i]; k++)
+    {
+      j += (k ? "," : "");
+      j += "\"" + jesc(profileAppLimitsStr[i][k]) + "\"";
     }
     j += "]}";
   }
@@ -1002,32 +1039,35 @@ static void handleSaveProfiles()
   {
     JsonArray profArray = doc["profiles"].as<JsonArray>();
     int idx = 0;
-      for (JsonObject p : profArray)
+    for (JsonObject p : profArray)
+    {
+      if (idx >= 10)
+        break;
+      if (!p["name"].isNull())
+        profiles[idx].name = p["name"].as<String>();
+      if (!p["start"].isNull())
+        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+      if (!p["end"].isNull())
+        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+      if (!p["mode"].isNull())
+        profiles[idx].bedtimeMode = p["mode"].as<int>();
+      else
+        profiles[idx].bedtimeMode = 0; // Default hard
+
+      numProfileAppLimits[idx] = 0;
+      if (p["limits"].is<JsonArray>())
       {
-        if (idx >= 10)
-          break;
-        if (!p["name"].isNull())
-          profiles[idx].name = p["name"].as<String>();
-        if (!p["start"].isNull())
-          profiles[idx].startBedtimeMinutes = p["start"].as<int>();
-        if (!p["end"].isNull())
-          profiles[idx].endBedtimeMinutes = p["end"].as<int>();
-        if (!p["mode"].isNull())
-          profiles[idx].bedtimeMode = p["mode"].as<int>();
-        else
-          profiles[idx].bedtimeMode = 0; // Default hard
-
-        numProfileAppLimits[idx] = 0;
-          if (p["limits"].is<JsonArray>()) {
-              for (String s : p["limits"].as<JsonArray>()) {
-                  if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS) break;
-                profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
-                profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
-                numProfileAppLimits[idx]++;
-            }
+        for (String s : p["limits"].as<JsonArray>())
+        {
+          if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS)
+            break;
+          profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
+          profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
+          numProfileAppLimits[idx]++;
         }
+      }
 
-        if (!p["dns"].isNull())
+      if (!p["dns"].isNull())
       {
         IPAddress ip;
         if (ip.fromString(p["dns"].as<const char *>()))
@@ -1068,7 +1108,7 @@ static void handleAssignProfile()
   }
 
   String mac = web.arg("mac");
-  
+
   if (web.hasArg("forget") && web.arg("forget") == "true")
   {
     for (int i = 0; i < numClients; i++)
@@ -1144,7 +1184,7 @@ static void handleSetPass()
     web.send(403, "text/plain", "bad token");
     return;
   }
-  
+
   if (!web.hasArg("old") || web.arg("old") != authPassword)
   {
     web.send(403, "text/plain", "invalid current password");
@@ -1354,6 +1394,8 @@ static bool connectWiFi()
 
   LOG("[WiFi] Connecting to: '%s'\n", trySsid.c_str());
 
+  WiFi.setHostname("C3-NetGuard");
+
   WiFi.begin(trySsid.c_str(), tryPass.c_str());
 
   uint32_t t0 = millis();
@@ -1526,8 +1568,9 @@ static void saveConfig()
     doc["profiles"][i]["mode"] = profiles[i].bedtimeMode;
     doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
     JsonArray limits = doc["profiles"][i]["limits"].to<JsonArray>();
-    for (int j = 0; j < numProfileAppLimits[i]; j++) {
-        limits.add(profileAppLimitsStr[i][j]);
+    for (int j = 0; j < numProfileAppLimits[i]; j++)
+    {
+      limits.add(profileAppLimitsStr[i][j]);
     }
   }
 
@@ -1580,32 +1623,35 @@ static void loadConfig()
   {
     JsonArray profArray = doc["profiles"].as<JsonArray>();
     int idx = 0;
-      for (JsonObject p : profArray)
+    for (JsonObject p : profArray)
+    {
+      if (idx >= 10)
+        break;
+      if (!p["name"].isNull())
+        profiles[idx].name = p["name"].as<String>();
+      if (!p["start"].isNull())
+        profiles[idx].startBedtimeMinutes = p["start"].as<int>();
+      if (!p["end"].isNull())
+        profiles[idx].endBedtimeMinutes = p["end"].as<int>();
+      if (!p["mode"].isNull())
+        profiles[idx].bedtimeMode = p["mode"].as<int>();
+      else
+        profiles[idx].bedtimeMode = 0; // Default hard
+
+      numProfileAppLimits[idx] = 0;
+      if (p["limits"].is<JsonArray>())
       {
-        if (idx >= 10)
-          break;
-        if (!p["name"].isNull())
-          profiles[idx].name = p["name"].as<String>();
-        if (!p["start"].isNull())
-          profiles[idx].startBedtimeMinutes = p["start"].as<int>();
-        if (!p["end"].isNull())
-          profiles[idx].endBedtimeMinutes = p["end"].as<int>();
-        if (!p["mode"].isNull())
-          profiles[idx].bedtimeMode = p["mode"].as<int>();
-        else
-          profiles[idx].bedtimeMode = 0; // Default hard
-
-        numProfileAppLimits[idx] = 0;
-          if (p["limits"].is<JsonArray>()) {
-              for (String s : p["limits"].as<JsonArray>()) {
-                  if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS) break;
-                profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
-                profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
-                numProfileAppLimits[idx]++;
-            }
+        for (String s : p["limits"].as<JsonArray>())
+        {
+          if (numProfileAppLimits[idx] >= MAX_PROFILE_LIMITS)
+            break;
+          profileAppLimitsStr[idx][numProfileAppLimits[idx]] = s;
+          profileAppLimitsHash[idx][numProfileAppLimits[idx]] = fnv40(s.c_str(), s.length());
+          numProfileAppLimits[idx]++;
         }
+      }
 
-        if (!p["dns"].isNull())
+      if (!p["dns"].isNull())
       {
         IPAddress ip;
         if (ip.fromString(p["dns"].as<const char *>()))
@@ -1735,15 +1781,15 @@ void setup()
   web.on("/dhcp", HTTP_POST, handleDhcpToggle);
   web.on("/setwifi", HTTP_POST, handleSetWifi);
 
-  web.onNotFound([]() {
+  web.onNotFound([]()
+                 {
     if (web.method() == HTTP_OPTIONS) {
       sendCorsHeaders();
       web.send(204);
     } else {
       sendCorsHeaders();
       web.send(404, "text/plain", "Not Found");
-    }
-  });
+    } });
 
   web.begin();
 

@@ -130,7 +130,7 @@ function ClientRow({ client, profiles, onUpdate, onForget }: ClientRowProps) {
             <select
               value={client.profile}
               onChange={handleProfileChange}
-              className="bg-transparent border-none p-0 focus:ring-0 font-body-md text-primary w-32 cursor-pointer hover:bg-surface-variant px-1 rounded transition-colors text-right md:text-left"
+              className="bg-surface border border-outline-variant rounded-lg px-2 py-1 font-label-md text-label-md text-on-surface focus:ring-1 focus:ring-primary focus:border-primary"
             >
               {profiles.map((p, idx) => (
                 <option key={idx} value={idx}>
