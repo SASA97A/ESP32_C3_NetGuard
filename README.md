@@ -33,6 +33,15 @@ Because the ESP32 chip requires the baseline web server and Over-The-Air (OTA) a
 6. Once connected, visit `http://c3netguard.local` in your browser to load the dashboard!
 7. **CRITICAL ROUTER SETUP:** For NetGuard to actively intercept and manage your devices, you must log into your main home router's admin panel and change your primary DHCP **DNS Server** to point to the local IP address of your ESP32-C3. If you skip this step, devices on your network will naturally bypass the gateway!
 
+## Apps & Dashboards
+
+**Mobile Users (PWA)**
+To manage NetGuard from your phone, navigate to [https://sasa97a.github.io/ESP32_C3_NetGuard/](https://sasa97a.github.io/ESP32_C3_NetGuard/) in your mobile browser. **Do not use the dashboard directly in the browser.** Instead, use your browser's menu to "Install" or "Add to Home Screen" to install it as a fully-functioning Progressive Web App (PWA).
+
+**Desktop Users**
+Navigate to the **Releases** page and download the dedicated desktop application tailored for your operating system (Windows `.exe`, macOS `.dmg` etc.). 
+* **Note on Unsigned Apps:** Because these application binaries are currently unsigned, your operating system (like Windows SmartScreen or macOS Gatekeeper) will likely flag them as an unknown publisher. You will need to explicitly click "More info" > "Run anyway" (Windows) or allow it through your security settings (Mac) to open the application.
+  
 **Subsequent Updates (OTA):**
 Once NetGuard is running, all future version upgrades can be performed wirelessly! Simply download the newest `.bin` from GitHub, navigate to the **Settings** tab in your dashboard, and use the **Flash Firmware** upload tool. 
 * **Note on OTA Reboots:** Because the ESP32 physically drops its network connection to instantly hardware-reboot upon a successful flash, the dashboard may occasionally report a false "Connection Error" right at 100%. This is a known, harmless UI quirk. Simply wait a few moments and refresh the page to see your updated dashboard!
@@ -57,8 +66,10 @@ If you wish to compile the firmware from source, this project relies on Platform
 * **Backend Compilation:** Execute `pio run -e c3` to compile the firmware.
 * **Frontend Compilation:** The dashboard interface is built using Vite and React. Navigate to the `frontend/` directory and run `npm run dev` for live compilation, or `npm run build` to package the static assets.
 
-## CI/CD and Versioning
-This repository utilizes GitHub Actions. Merging C++ backend changes to the `main` branch automatically triggers a test build, safely advances the internal firmware version string, packages the compiled binary, and publishes a formal GitHub Release.
+## Known Issues (Desktop App)
+* **External Links:** Clicking external links (such as GitHub release URLs) inside the Tauri desktop wrapper does not currently break out into the host OS's default system browser.
+* **Firmware Flashing:** The OTA firmware upload feature is currently restricted within the compiled Desktop versions due to strict file-bridging protocols. Please use the web dashboard via your mobile PWA app for OTA updates.
+* **Multiple Instances (Non-Singleton):** Launching the Desktop application multiple times will generate duplicate floating windows rather than returning focus to the originally opened running instance.
 
 ## License
 Refer to the embedded LICENSE file (if applicable) for distribution rules.
