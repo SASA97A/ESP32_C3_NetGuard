@@ -449,6 +449,83 @@ static void expirePending()
     }
 }
 
+static int32_t getSecondsUntilBedtime(uint8_t profileId) {
+  if (profileId >= numProfiles) return -1;
+  int startMins = profiles[profileId].startBedtimeMinutes;
+  if (startMins == -1) return -1; // No bedtime set
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 10)) return -1;
+
+  int currentMins = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  
+  if (checkTimeWindow(currentMins, startMins, profiles[profileId].endBedtimeMinutes)) {
+      return -1;
+  }
+
+  int minsUntil = startMins - currentMins;
+  if (minsUntil < 0) minsUntil += 1440;
+
+  int secsUntil = (minsUntil * 60) - timeinfo.tm_sec;
+  return secsUntil;
+}
+
+static void overrideDnsTTL(uint8_t *pkt, int len, uint32_t max_ttl) {
+  if (len < 12) return;
+  
+  uint16_t qdcount = (pkt[4] << 8) | pkt[5];
+  uint16_t ancount = (pkt[6] << 8) | pkt[7];
+  
+  if (ancount == 0) return;
+
+  int offset = 12;
+
+  for (int i = 0; i < qdcount; i++) {
+      while (offset < len && pkt[offset] != 0) {
+          if ((pkt[offset] & 0xC0) == 0xC0) {
+              offset += 2;
+              break;
+          } else {
+              offset += pkt[offset] + 1;
+          }
+      }
+      if (offset < len && pkt[offset] == 0) offset++;
+      offset += 4;
+  }
+
+  for (int i = 0; i < ancount; i++) {
+      if (offset >= len) break;
+      
+      if ((pkt[offset] & 0xC0) == 0xC0) {
+          offset += 2;
+      } else {
+          while (offset < len && pkt[offset] != 0) {
+              if ((pkt[offset] & 0xC0) == 0xC0) { offset += 2; break; }
+              offset += pkt[offset] + 1;
+          }
+          if (offset < len && pkt[offset] == 0) offset++;
+      }
+      
+      offset += 4;
+      if (offset + 4 > len) break;
+
+      uint32_t current_ttl = (pkt[offset] << 24) | (pkt[offset+1] << 16) | (pkt[offset+2] << 8) | pkt[offset+3];
+      
+      if (current_ttl > max_ttl) {
+          pkt[offset]   = (max_ttl >> 24) & 0xFF;
+          pkt[offset+1] = (max_ttl >> 16) & 0xFF;
+          pkt[offset+2] = (max_ttl >> 8)  & 0xFF;
+          pkt[offset+3] =  max_ttl        & 0xFF;
+      }
+      
+      offset += 4;
+      if (offset + 2 > len) break;
+      
+      uint16_t rdlength = (pkt[offset] << 8) | pkt[offset+1];
+      offset += 2 + rdlength;
+  }
+}
+
 static void pollUpstream(uint8_t *buf, int bufSize)
 {
   int sz = upstream.parsePacket();
@@ -462,6 +539,16 @@ static void pollUpstream(uint8_t *buf, int bufSize)
     return;
   buf[0] = (pending[replyID].originalID >> 8) & 0xFF;
   buf[1] = pending[replyID].originalID & 0xFF;
+
+  Dev *c = getClient(pending[replyID].clientIP);
+  uint8_t pid = c ? c->currentProfileId : 0;
+  int32_t secsUntil = getSecondsUntilBedtime(pid);
+  
+  if (secsUntil > 0 && secsUntil < 7200) {
+      uint32_t applied_ttl = (secsUntil < 15) ? 15 : (uint32_t)secsUntil;
+      overrideDnsTTL(buf, rlen, applied_ttl);
+  }
+
   dnsServer.beginPacket(pending[replyID].clientIP, pending[replyID].clientPort);
   dnsServer.write(buf, rlen);
   dnsServer.endPacket();
