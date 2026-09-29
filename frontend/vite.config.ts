@@ -14,7 +14,8 @@ export default defineConfig({
         'favicon-16x16.png', 
         'favicon-32x32.png', 
         'apple-icon-180x180.png', 
-        'ms-icon-310x310.png'
+        'ms-icon-310x310.png',
+        'icons/*.svg'
       ],
       manifest: {
         name: 'NetGuard',

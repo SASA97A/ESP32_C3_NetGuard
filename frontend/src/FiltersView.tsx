@@ -10,16 +10,16 @@ interface FiltersViewProps {
 }
 
 const PREDEFINED_APPS = [
-  { id: 'meta', label: 'Meta', icon: '/icons/meta.svg', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
-  { id: 'tiktok', label: 'TikTok', icon: '/icons/tiktok.svg', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
-  { id: 'youtube', label: 'YouTube', icon: '/icons/youtube.svg', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
-  { id: 'snapchat', label: 'Snapchat', icon: '/icons/snapchat.svg', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
-  { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
-  { id: 'twitch', label: 'Twitch', icon: '/icons/twitch.svg', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
-  { id: 'pinterest', label: 'Pinterest', icon: '/icons/pinterest.svg', domains: ['pinterest.com', 'pinimg.com'] },
-  { id: 'roblox', label: 'Roblox', icon: '/icons/roblox.svg', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
-  { id: 'reddit', label: 'Reddit', icon: '/icons/reddit.svg', domains: ['reddit.com', 'redditmedia.com'] },
-  { id: 'twitter', label: 'X', icon: '/icons/x.svg', domains: ['twitter.com', 'twimg.com', 'x.com'] }
+  { id: 'meta', label: 'Meta', icon: import.meta.env.BASE_URL + 'icons/meta.svg', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com', 'whatsapp.com', 'whatsapp.net'] },
+  { id: 'tiktok', label: 'TikTok', icon: import.meta.env.BASE_URL + 'icons/tiktok.svg', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'musical.ly'] },
+  { id: 'youtube', label: 'YouTube', icon: import.meta.env.BASE_URL + 'icons/youtube.svg', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
+  { id: 'snapchat', label: 'Snapchat', icon: import.meta.env.BASE_URL + 'icons/snapchat.svg', domains: ['snapchat.com', 'sc-cdn.net', 'snapads.com'] },
+  { id: 'discord', label: 'Discord', icon: import.meta.env.BASE_URL + 'icons/discord.svg', domains: ['discord.com', 'discordapp.com', 'discord.gg'] },
+  { id: 'twitch', label: 'Twitch', icon: import.meta.env.BASE_URL + 'icons/twitch.svg', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { id: 'pinterest', label: 'Pinterest', icon: import.meta.env.BASE_URL + 'icons/pinterest.svg', domains: ['pinterest.com', 'pinimg.com'] },
+  { id: 'roblox', label: 'Roblox', icon: import.meta.env.BASE_URL + 'icons/roblox.svg', domains: ['roblox.com', 'rbxcdn.com', 'epicgames.com'] },
+  { id: 'reddit', label: 'Reddit', icon: import.meta.env.BASE_URL + 'icons/reddit.svg', domains: ['reddit.com', 'redditmedia.com'] },
+  { id: 'twitter', label: 'X', icon: import.meta.env.BASE_URL + 'icons/x.svg', domains: ['twitter.com', 'twimg.com', 'x.com'] }
 ];
 
 export default function FiltersView({ profiles, hasUnsavedChanges, onUpdateProfileField, onSaveProfiles, savingProfiles }: FiltersViewProps) {

@@ -58,17 +58,32 @@ export function uploadOTA(file: File, onProgress: (pct: number) => void): Promis
       const endpoint = `/update?token=${getSessionToken()}`;
       const url = `${getApiBaseUrl()}${endpoint}`;
       
-      const formData = new FormData();
-      formData.append('update', file);
-      
-      onProgress(50);
       try {
+        // Manually construct multipart/form-data payload for tauriFetch
+        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+        const fileBuffer = await file.arrayBuffer();
+        const encoder = new TextEncoder();
+        
+        const header = encoder.encode(
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="update"; filename="${file.name}"\r\n` +
+          `Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`
+        );
+        const footer = encoder.encode(`\r\n--${boundary}--\r\n`);
+        
+        const body = new Uint8Array(header.length + fileBuffer.byteLength + footer.length);
+        body.set(header, 0);
+        body.set(new Uint8Array(fileBuffer), header.length);
+        body.set(footer, header.length + fileBuffer.byteLength);
+        
+        onProgress(50);
         const res = await tauriFetch(url, {
           method: 'POST',
           headers: {
-            'Authorization': getAuthHeader()
+            'Authorization': getAuthHeader(),
+            'Content-Type': `multipart/form-data; boundary=${boundary}`
           },
-          body: formData
+          body: body
         });
         
         if (res.ok) {
