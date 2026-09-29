@@ -67,7 +67,6 @@ If you wish to compile the firmware from source, this project relies on Platform
 * **Frontend Compilation:** The dashboard interface is built using Vite and React. Navigate to the `frontend/` directory and run `npm run dev` for live compilation, or `npm run build` to package the static assets.
 
 ## Known Issues (Desktop App)
-* **External Links:** Clicking external links (such as GitHub release URLs) inside the Tauri desktop wrapper does not currently break out into the host OS's default system browser.
 * **Multiple Instances (Non-Singleton):** Launching the Desktop application multiple times will generate duplicate floating windows rather than returning focus to the originally opened running instance.
 
 ## License

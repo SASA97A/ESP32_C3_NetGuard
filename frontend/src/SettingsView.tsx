@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { fetchApi, uploadOTA } from './api';
+import { fetchApi, uploadOTA, isTauri } from './api';
+import { open } from '@tauri-apps/plugin-shell';
 
 export const TIMEZONES = [
   { label: "(GMT -12:00) Eniwetok, Kwajalein", val: "UTC12" },
@@ -310,6 +311,7 @@ export default function SettingsView() {
                 <a 
                   href="https://github.com/SASA97A/ESP32_C3_NetGuard/releases/latest" 
                   target="_blank" 
+                  onClick={(e) => { if (isTauri()) { e.preventDefault(); open("https://github.com/SASA97A/ESP32_C3_NetGuard/releases/latest"); } }} 
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 font-label-sm text-label-sm font-bold bg-secondary-container text-on-secondary-container px-3 py-1.5 rounded hover:opacity-90 active:scale-95 transition-all"
                 >
