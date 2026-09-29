@@ -68,7 +68,6 @@ If you wish to compile the firmware from source, this project relies on Platform
 
 ## Known Issues (Desktop App)
 * **External Links:** Clicking external links (such as GitHub release URLs) inside the Tauri desktop wrapper does not currently break out into the host OS's default system browser.
-* **Firmware Flashing:** The OTA firmware upload feature is currently restricted within the compiled Desktop versions due to strict file-bridging protocols. Please use the web dashboard via your mobile PWA app for OTA updates.
 * **Multiple Instances (Non-Singleton):** Launching the Desktop application multiple times will generate duplicate floating windows rather than returning focus to the originally opened running instance.
 
 ## License
