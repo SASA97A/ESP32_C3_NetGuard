@@ -10,6 +10,9 @@ NetGuard acts as an intercepting DNS gateway on your network, allowing administr
 * **Access Profiles (Grouping):** Organize devices into distinct profiles (e.g., "Kids", "Adults", "IoT").
 * **Scheduled Blocking (Bedtimes):** Define exact start and end times for internet cutoffs on a per-profile basis.
 * **DNS Routing:** Conditionally route specific profiles through custom upstream DNS servers for filtering or tracking.
+* **Blocklists:** Download hosts, plain-domain or adblock-style lists (e.g. StevenBlack) straight onto the device, refreshed on a schedule, plus an "Always Blocked" custom list. Each profile chooses whether the downloaded list applies.
+* **Bypass Hardening:** Short DNS TTLs so blocks apply within minutes, DoH canary domains answered NXDOMAIN, and new or unidentified devices held briefly until their MAC is known so they never fall onto an unrestricted profile.
+* **Optional DHCP Server:** Hands out leases with NetGuard as the only DNS server; leases persist across reboots. Disable your router's DHCP before enabling it.
 * **Secure Authentication:** Locally authenticated dashboard ensures only network administrators can alter routing rules.
 * **Real-time Polling & PWA:** The dashboard operates as an installable Progressive Web App, securely polling your ESP32 in the background to reflect network statistics, hardware temperatures, and access states dynamically.
 
@@ -32,6 +35,8 @@ Because the ESP32 chip requires the baseline web server and Over-The-Air (OTA) a
 5. Connect to it, and a captive portal will appear (or visit `http://192.168.4.1`) prompting you to securely designate your home WiFi network.
 6. Once connected, visit `http://c3netguard.local` in your browser to load the dashboard!
 7. **CRITICAL ROUTER SETUP:** For NetGuard to actively intercept and manage your devices, you must log into your main home router's admin panel and change your primary DHCP **DNS Server** to point to the local IP address of your ESP32-C3. If you skip this step, devices on your network will naturally bypass the gateway!
+   * Do not set a secondary DNS server on the router, and disable IPv6 DNS (RDNSS/DHCPv6) on the LAN — devices will use those to bypass NetGuard.
+   * Smart TVs often fall back to hardcoded resolvers such as `8.8.8.8`. If your router supports it, block outbound port 53/853 for every device except NetGuard.
 
 ## Apps & Dashboards
 

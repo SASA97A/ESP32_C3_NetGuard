@@ -5,6 +5,7 @@ export interface Profile {
   dns: string;
   mode?: number;
   limits?: string[];
+  bl?: boolean;
 }
 
 export interface Client {
@@ -14,6 +15,14 @@ export interface Client {
   blocked: boolean;
   manualBlock?: boolean;
   name: string;
+}
+
+export interface BlocklistInfo {
+  url: string;
+  interval: number;
+  count: number;
+  status: string;
+  running: boolean;
 }
 
 export interface StatsResponse {
@@ -28,6 +37,11 @@ export interface StatsResponse {
   token: string;
   timezone: string;
   version?: string;
+  clock?: 'ntp' | 'restored' | 'set' | 'unset';
+  blocked?: number;
+  allowed?: number;
+  blocklist?: BlocklistInfo;
+  custom?: string[];
   profiles: Profile[];
   clients: Client[];
 }

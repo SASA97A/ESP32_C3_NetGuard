@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { fetchApi, uploadOTA, isTauri } from './api';
 import { open } from '@tauri-apps/plugin-shell';
+import BlocklistCard from './BlocklistCard';
 
 export const TIMEZONES = [
   { label: "(GMT -12:00) Eniwetok, Kwajalein", val: "UTC12" },
@@ -50,6 +51,7 @@ export default function SettingsView() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [timezone, setTimezone] = useState('');
+  const [clock, setClock] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [tzMsg, setTzMsg] = useState('');
@@ -66,6 +68,7 @@ export default function SettingsView() {
       .then(data => {
         if (data) {
           if (data.timezone) setTimezone(data.timezone);
+          if (data.clock) setClock(data.clock);
           if (data.version) {
             setFirmwareVersion(data.version);
           } else {
@@ -234,8 +237,17 @@ export default function SettingsView() {
             ))}
           </select>
           {tzMsg && <div className="text-xs font-medium text-primary mt-1">{tzMsg}</div>}
+          {clock && clock !== 'ntp' && (
+            <div className="text-xs font-medium text-error mt-1">
+              {clock === 'unset'
+                ? 'Clock not set yet (no internet time). Bedtime schedules are paused until it syncs.'
+                : 'Clock restored from the last saved time; bedtimes may be off until internet time syncs.'}
+            </div>
+          )}
         </div>
       </section>
+
+      <BlocklistCard />
 
       {/* Authentication Security Card */}
       <section className="bg-surface-container-lowest border border-outline-variant rounded-lg p-container-padding transition-all">

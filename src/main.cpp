@@ -12,11 +12,15 @@
 #include <ArduinoOTA.h>
 #include <time.h>
 #include <sntp.h>
+#include <Preferences.h>
+#include <algorithm>
 #include "lwip/etharp.h"
 #include "lwip/netif.h"
 #include "lwip/tcpip.h"
+#include "lwip/dns.h"
 #include "secrets.h"
 #include "scheduler.h"
+#include "blocklist_parse.h"
 #include "dashboard_html.h"
 
 // ---- config ----
@@ -27,10 +31,15 @@ static const char *BLOCKLIST_PATH = "/blocklist.bin";
 static const int HASH_BYTES = 5;
 static const uint64_t HASH_MASK = (1ULL << (HASH_BYTES * 8)) - 1;
 static const int DNS_BUF_SIZE = 1232;
-static const int MAX_PENDING = 32;
+static const int MAX_PENDING = 64;
+static const int MAX_TCP_DNS = 4;
+static const int DNS_BURST = 8;               // packets handled per loop pass
+static const uint32_t TCP_DNS_IDLE_MS = 3000;
+static const uint32_t MAX_FORWARD_TTL = 300;  // a new block takes effect within 5 min
 static const int MAX_CLIENTS = 96;
 static const int MAX_CUSTOM = 200;
-static const int MAX_DHCP_LEASES = 32;
+static const int MAX_DHCP_LEASES = 100;
+static const uint32_t MAX_UPDATE_INTERVAL_H = 168;
 static const int MAX_PROFILE_LIMITS = 96;
 static const uint32_t UPSTREAM_TIMEOUT_MS = 2000;
 static const uint32_t REMOTE_FETCH_IDLE_MS = 3000;
@@ -49,13 +58,12 @@ static const char *DEFAULT_PASS = "adminpass123";
 // ---- forward declarations ----
 WebServer web(80);
 static const char *COLLECTED_HEADERS[] = {"Authorization", "If-None-Match", "Origin", "Referer"};
-String updateUrl, updateStatus = "never";
-uint32_t updateIntervalH = 24, lastCheckMs = 0;
+String updateUrl;
+uint32_t updateIntervalH = 24;
 static uint32_t lastDnsActivityMs = 0;
 bool dhcpEnabled = false;
 static void saveDhcpCfg();
 static void saveWifiCfg(const String &ssid, const String &pass);
-static bool fetchBlocklist(String url);
 
 // ---- hashing ----------
 static uint64_t fnv64(const char *s, size_t n)
@@ -118,12 +126,12 @@ static void loadCustom()
   while (f.available() && numCustom < MAX_CUSTOM)
   {
     String l = f.readStringUntil('\n');
-    l.trim();
-    l.toLowerCase();
-    if (l.length() && l.indexOf('.') > 0)
+    char norm[256];
+    size_t n = extractBlocklistDomain(l.c_str(), l.length(), norm, sizeof(norm));
+    if (n)
     {
-      customDom[numCustom] = l;
-      customHash[numCustom] = fnv40(l.c_str(), l.length());
+      customDom[numCustom] = String(norm);
+      customHash[numCustom] = fnv40(norm, n);
       numCustom++;
     }
   }
@@ -143,12 +151,11 @@ static void saveCustom()
 
 static bool addCustom(String d)
 {
-  d.trim();
-  d.toLowerCase();
-  if (d.startsWith("www."))
-    d = d.substring(4);
-  if (!d.length() || d.indexOf('.') < 0 || numCustom >= MAX_CUSTOM)
+  char norm[256];
+  size_t n = extractBlocklistDomain(d.c_str(), d.length(), norm, sizeof(norm));
+  if (!n || numCustom >= MAX_CUSTOM)
     return false;
+  d = String(norm);
   for (int i = 0; i < numCustom; i++)
     if (customDom[i] == d)
       return false;
@@ -179,6 +186,570 @@ static void removeCustom(String d)
     }
 }
 
+// ---- blocklist (sorted 40-bit hashes on flash) ----
+// File layout: "NGB1" | count:u32 | start[257]:u32 | count x 5-byte LE hashes, ascending.
+// start[b] indexes the first hash whose top byte is b, so a lookup is a binary search
+// over one bucket (~log2(count/256) flash reads).
+static const char BL_MAGIC[4] = {'N', 'G', 'B', '1'};
+static const int BL_BUCKETS = 256;
+static const uint32_t BL_HEADER_SIZE = 8 + (BL_BUCKETS + 1) * 4;
+static const char *BLOCKLIST_NEW = "/blocklist.new";
+static const char *BLOCKLIST_RAW = "/blocklist.raw";
+static const uint32_t BL_MAX_DOMAINS = 160000;
+static const size_t BL_FS_SLACK = 64 * 1024; // keep room for config files
+static const uint32_t BL_RETRY_MS = 30UL * 60 * 1000;
+static const uint32_t BL_FIRST_FETCH_MS = 60000;
+
+File blocklist;
+uint32_t blCount = 0;
+static uint32_t blStart[BL_BUCKETS + 1];
+
+static inline uint8_t blBucket(uint64_t h) { return (uint8_t)(h >> 32); }
+
+static bool inBlocklist(uint64_t h)
+{
+  if (!blocklist || blCount == 0)
+    return false;
+  uint8_t b = blBucket(h);
+  int32_t lo = (int32_t)blStart[b], hi = (int32_t)blStart[b + 1] - 1;
+  uint8_t buf[HASH_BYTES];
+  while (lo <= hi)
+  {
+    int32_t mid = (lo + hi) >> 1;
+    blocklist.seek(BL_HEADER_SIZE + (uint32_t)mid * HASH_BYTES);
+    if (blocklist.read(buf, HASH_BYTES) != HASH_BYTES)
+      return false;
+    uint64_t v = 0;
+    for (int k = 0; k < HASH_BYTES; k++)
+      v |= (uint64_t)buf[k] << (8 * k);
+    if (v < h)
+      lo = mid + 1;
+    else if (v > h)
+      hi = mid - 1;
+    else
+      return true;
+  }
+  return false;
+}
+
+// Matches the domain and each parent domain (never a bare TLD) against the custom
+// list and, when the profile uses it, the downloaded blocklist.
+static bool isListed(const char *domain, size_t dlen, bool useBlocklist)
+{
+  const char *p = domain;
+  size_t remaining = dlen;
+  while (remaining > 0)
+  {
+    uint64_t h = fnv40(p, remaining);
+    if (inCustom(h) || (useBlocklist && inBlocklist(h)))
+      return true;
+    const char *dot = (const char *)memchr(p, '.', remaining);
+    if (!dot)
+      break;
+    remaining -= (size_t)(dot - p) + 1;
+    p = dot + 1;
+    if (!memchr(p, '.', remaining))
+      break;
+  }
+  return false;
+}
+
+static void closeBlocklist()
+{
+  if (blocklist)
+    blocklist.close();
+  blCount = 0;
+}
+
+static void reopenBlocklist()
+{
+  closeBlocklist();
+  blocklist = LittleFS.open(BLOCKLIST_PATH, "r");
+  if (!blocklist)
+    return;
+  uint8_t hdr[8];
+  bool ok = blocklist.read(hdr, 8) == 8 && memcmp(hdr, BL_MAGIC, 4) == 0 &&
+            blocklist.read((uint8_t *)blStart, sizeof(blStart)) == sizeof(blStart);
+  uint32_t count = hdr[4] | (hdr[5] << 8) | (hdr[6] << 16) | ((uint32_t)hdr[7] << 24);
+  ok = ok && blStart[0] == 0 && blStart[BL_BUCKETS] == count &&
+       blocklist.size() == BL_HEADER_SIZE + (size_t)count * HASH_BYTES;
+  for (int b = 0; ok && b < BL_BUCKETS; b++)
+    ok = blStart[b] <= blStart[b + 1];
+  if (!ok)
+  {
+    LOGN("[bl] invalid blocklist file");
+    blocklist.close();
+    return;
+  }
+  blCount = count;
+  LOG("[bl] %u domains\n", blCount);
+}
+
+// ---- blocklist download + build (background task) ----
+// Runs in its own task so DNS keeps answering during the download and the sort.
+// The main loop owns the open blocklist file; the task only asks it to drop or swap.
+static volatile bool blBuildRunning = false;
+static volatile bool blBuildReady = false;   // /blocklist.new is complete, swap it in
+static volatile bool blDropRequested = false; // task needs the old file's flash space
+static volatile bool blBuildFailed = false;
+static volatile bool blTruncated = false; // last build hit the flash limit
+static char blStatus[96] = "never";
+static uint32_t blNextFetchMs = 0;
+
+// Raw hashes are split into parts by their top bits so each part can be deleted as soon
+// as it is sorted: peak flash use is about 1.25x the final list instead of 2x.
+static const int BL_RAW_PARTS = 4;
+static const int BL_BUCKETS_PER_PART = BL_BUCKETS / BL_RAW_PARTS;
+
+static String rawPartPath(int part)
+{
+  return String(BLOCKLIST_RAW) + part;
+}
+
+static void removeRawParts()
+{
+  for (int p = 0; p < BL_RAW_PARTS; p++)
+    LittleFS.remove(rawPartPath(p));
+}
+
+// Asks the main loop to close and delete the current list, then waits for it
+static void dropCurrentBlocklist()
+{
+  blDropRequested = true;
+  while (blDropRequested)
+    vTaskDelay(10);
+}
+
+// Receives the HTTP body, splits it into lines and appends each domain's hash to a raw part
+class BlocklistSink : public Stream
+{
+public:
+  File raw[BL_RAW_PARTS];
+  uint32_t counts[BL_BUCKETS] = {0};
+  uint32_t total = 0;
+  uint32_t capWithOld = 0; // fits next to the current list
+  uint32_t cap = 0;        // fits once the current list is dropped
+  bool truncated = false;
+
+  size_t write(uint8_t ch) override
+  {
+    if (ch == '\n')
+    {
+      endLine();
+      return 1;
+    }
+    if (lineLen < sizeof(line))
+      line[lineLen++] = (char)ch;
+    else
+      overflow = true;
+    return 1;
+  }
+  size_t write(const uint8_t *buf, size_t n) override
+  {
+    for (size_t i = 0; i < n; i++)
+      write(buf[i]);
+    return n;
+  }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+
+  void endLine()
+  {
+    if (!overflow && lineLen)
+    {
+      char dom[256];
+      size_t dl = extractBlocklistDomain(line, lineLen, dom, sizeof(dom));
+      if (dl)
+        add(fnv40(dom, dl));
+    }
+    lineLen = 0;
+    overflow = false;
+  }
+  void finish()
+  {
+    endLine();
+    flushParts();
+  }
+
+private:
+  char line[256];
+  size_t lineLen = 0;
+  bool overflow = false;
+  bool droppedOld = false;
+  uint8_t out[BL_RAW_PARTS][HASH_BYTES * 40];
+  size_t outLen[BL_RAW_PARTS] = {0};
+
+  void flushParts()
+  {
+    for (int p = 0; p < BL_RAW_PARTS; p++)
+      if (outLen[p])
+      {
+        raw[p].write(out[p], outLen[p]);
+        outLen[p] = 0;
+      }
+  }
+
+  void add(uint64_t h)
+  {
+    if (total >= capWithOld && !droppedOld && capWithOld < cap)
+    {
+      flushParts();
+      dropCurrentBlocklist(); // DNS runs without the list until the new one is ready
+      droppedOld = true;
+    }
+    if (total >= (droppedOld ? cap : capWithOld))
+    {
+      truncated = true;
+      return;
+    }
+    int p = blBucket(h) / BL_BUCKETS_PER_PART;
+    for (int k = 0; k < HASH_BYTES; k++)
+      out[p][outLen[p]++] = (h >> (8 * k)) & 0xFF;
+    if (outLen[p] == sizeof(out[p]))
+    {
+      raw[p].write(out[p], outLen[p]);
+      outLen[p] = 0;
+    }
+    counts[blBucket(h)]++;
+    total++;
+  }
+};
+
+static bool downloadList(const String &url, BlocklistSink &sink)
+{
+  WiFiClientSecure cs;
+  WiFiClient cl;
+  HTTPClient http;
+  http.setTimeout(20000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.useHTTP10(true); // plain body, no chunk framing
+  bool https = url.startsWith("https");
+  if (https)
+    cs.setInsecure(); // list integrity isn't security critical; no CA bundle on board
+  if (!(https ? http.begin(cs, url) : http.begin(cl, url)))
+  {
+    snprintf(blStatus, sizeof(blStatus), "bad url");
+    return false;
+  }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK)
+  {
+    http.end();
+    snprintf(blStatus, sizeof(blStatus), "HTTP %d", code);
+    return false;
+  }
+  int r = http.writeToStream(&sink);
+  http.end();
+  sink.endLine();
+  if (r < 0)
+  {
+    snprintf(blStatus, sizeof(blStatus), "download error %d", r);
+    return false;
+  }
+  return true;
+}
+
+// Sorts the raw parts into the final file. Within a part, buckets are grouped so each
+// group fits a RAM buffer; every group costs one sequential pass over that part.
+static bool sortBlocklist(const uint32_t *counts)
+{
+  size_t bufCap = 12000;
+  uint64_t *buf = nullptr;
+  while (bufCap >= 1000 && !(buf = (uint64_t *)malloc(bufCap * sizeof(uint64_t))))
+    bufCap /= 2;
+  if (!buf)
+  {
+    snprintf(blStatus, sizeof(blStatus), "out of memory");
+    return false;
+  }
+  for (int b = 0; b < BL_BUCKETS; b++)
+    if (counts[b] > bufCap)
+    {
+      free(buf);
+      snprintf(blStatus, sizeof(blStatus), "bucket too large");
+      return false;
+    }
+
+  File out = LittleFS.open(BLOCKLIST_NEW, "w");
+  if (!out)
+  {
+    free(buf);
+    snprintf(blStatus, sizeof(blStatus), "fs open failed");
+    return false;
+  }
+  uint8_t zero[64] = {0};
+  for (uint32_t w = 0; w < BL_HEADER_SIZE; w += sizeof(zero))
+    out.write(zero, min((uint32_t)sizeof(zero), BL_HEADER_SIZE - w));
+
+  static uint32_t starts[BL_BUCKETS + 1];
+  uint32_t written = 0;
+  uint8_t io[HASH_BYTES * 100];
+  size_t ioLen = 0;
+  bool ok = true;
+  for (int part = 0; part < BL_RAW_PARTS && ok; part++)
+  {
+    File raw = LittleFS.open(rawPartPath(part), "r");
+    int pEnd = (part + 1) * BL_BUCKETS_PER_PART;
+    int b0 = part * BL_BUCKETS_PER_PART;
+    while (b0 < pEnd)
+    {
+      int b1 = b0;
+      size_t sum = 0;
+      while (b1 < pEnd && sum + counts[b1] <= bufCap)
+        sum += counts[b1++];
+
+      size_t n = 0;
+      if (raw)
+      {
+        raw.seek(0);
+        int got;
+        while ((got = raw.read(io, sizeof(io))) > 0)
+        {
+          for (int i = 0; i + HASH_BYTES <= got; i += HASH_BYTES)
+          {
+            uint64_t h = 0;
+            for (int k = 0; k < HASH_BYTES; k++)
+              h |= (uint64_t)io[i + k] << (8 * k);
+            int bk = blBucket(h);
+            if (bk >= b0 && bk < b1 && n < bufCap)
+              buf[n++] = h;
+          }
+          vTaskDelay(1); // let the DNS loop run
+        }
+      }
+      std::sort(buf, buf + n);
+
+      size_t idx = 0;
+      for (int b = b0; b < b1; b++)
+      {
+        starts[b] = written;
+        while (idx < n && blBucket(buf[idx]) == b)
+        {
+          if (idx == 0 || buf[idx] != buf[idx - 1])
+          {
+            for (int k = 0; k < HASH_BYTES; k++)
+              io[ioLen++] = (buf[idx] >> (8 * k)) & 0xFF;
+            if (ioLen == sizeof(io))
+            {
+              ok = ok && out.write(io, ioLen) == ioLen;
+              ioLen = 0;
+            }
+            written++;
+          }
+          idx++;
+        }
+      }
+      b0 = b1;
+    }
+    if (raw)
+      raw.close();
+    LittleFS.remove(rawPartPath(part));
+  }
+  if (ioLen)
+    ok = ok && out.write(io, ioLen) == ioLen;
+  starts[BL_BUCKETS] = written;
+  out.close();
+  free(buf);
+  if (!ok)
+  {
+    snprintf(blStatus, sizeof(blStatus), "flash full while sorting");
+    return false;
+  }
+
+  File hdr = LittleFS.open(BLOCKLIST_NEW, "r+");
+  if (!hdr)
+  {
+    snprintf(blStatus, sizeof(blStatus), "fs open failed");
+    return false;
+  }
+  uint8_t head[8];
+  memcpy(head, BL_MAGIC, 4);
+  head[4] = written & 0xFF;
+  head[5] = (written >> 8) & 0xFF;
+  head[6] = (written >> 16) & 0xFF;
+  head[7] = (written >> 24) & 0xFF;
+  hdr.seek(0);
+  ok = hdr.write(head, 8) == 8 && hdr.write((const uint8_t *)starts, sizeof(starts)) == sizeof(starts);
+  hdr.close();
+  if (!ok)
+    snprintf(blStatus, sizeof(blStatus), "fs write failed");
+  return ok;
+}
+
+static bool buildBlocklist(const String &urls)
+{
+  removeRawParts();
+  LittleFS.remove(BLOCKLIST_NEW);
+
+  size_t freeBytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+  File cur = LittleFS.open(BLOCKLIST_PATH, "r");
+  size_t curBytes = cur ? cur.size() : 0;
+  if (cur)
+    cur.close();
+  size_t reserve = BL_FS_SLACK + BL_HEADER_SIZE;
+  size_t withOld = freeBytes > reserve ? freeBytes - reserve : 0;
+  size_t withoutOld = freeBytes + curBytes > reserve ? freeBytes + curBytes - reserve : 0;
+
+  BlocklistSink *sink = new BlocklistSink();
+  // Downloading needs 1x the raw size; sorting peaks near 1.25x (+ part imbalance)
+  sink->cap = min((uint32_t)(withoutOld * 10 / (13 * HASH_BYTES)), BL_MAX_DOMAINS);
+  sink->capWithOld = min((uint32_t)(withOld / HASH_BYTES), sink->cap);
+  bool opened = true;
+  for (int p = 0; p < BL_RAW_PARTS; p++)
+  {
+    sink->raw[p] = LittleFS.open(rawPartPath(p), "w");
+    opened = opened && sink->raw[p];
+  }
+  if (!opened || sink->cap == 0)
+  {
+    snprintf(blStatus, sizeof(blStatus), sink->cap ? "fs open failed" : "flash full");
+    for (int p = 0; p < BL_RAW_PARTS; p++)
+      if (sink->raw[p])
+        sink->raw[p].close();
+    delete sink;
+    removeRawParts();
+    return false;
+  }
+
+  // Several lists may be given, separated by spaces, commas or newlines
+  bool anyOk = false;
+  int pos = 0;
+  while (pos < (int)urls.length())
+  {
+    int end = pos;
+    while (end < (int)urls.length() && urls[end] != ' ' && urls[end] != ',' && urls[end] != '\n' && urls[end] != '\r')
+      end++;
+    String url = urls.substring(pos, end);
+    pos = end + 1;
+    if (!url.length())
+      continue;
+    snprintf(blStatus, sizeof(blStatus), "downloading (%u so far)", sink->total);
+    LOG("[bl] GET %s\n", url.c_str());
+    if (downloadList(url, *sink))
+      anyOk = true;
+    else if (!anyOk)
+      break; // keep the old list instead of a partial one
+  }
+  sink->finish();
+  for (int p = 0; p < BL_RAW_PARTS; p++)
+    sink->raw[p].close();
+  uint32_t total = sink->total;
+  blTruncated = sink->truncated;
+  uint32_t counts[BL_BUCKETS];
+  memcpy(counts, sink->counts, sizeof(counts));
+  delete sink;
+
+  if (!anyOk || total == 0)
+  {
+    if (anyOk)
+      snprintf(blStatus, sizeof(blStatus), "no domains found");
+    removeRawParts();
+    return false;
+  }
+
+  // Sorting adds the final file next to the raw parts; make room if needed
+  size_t need = BL_HEADER_SIZE + (size_t)total * HASH_BYTES / 4 + BL_FS_SLACK;
+  if (LittleFS.totalBytes() - LittleFS.usedBytes() < need)
+    dropCurrentBlocklist();
+
+  snprintf(blStatus, sizeof(blStatus), "sorting %u domains", total);
+  if (!sortBlocklist(counts))
+  {
+    removeRawParts();
+    LittleFS.remove(BLOCKLIST_NEW);
+    return false;
+  }
+  return true;
+}
+
+static void blocklistTask(void *arg)
+{
+  String *urls = (String *)arg;
+  bool ok = buildBlocklist(*urls);
+  delete urls;
+  if (ok)
+    blBuildReady = true; // loop swaps it in and writes the final status
+  else
+    blBuildFailed = true; // loop schedules a retry
+  blBuildRunning = false;
+  vTaskDelete(nullptr);
+}
+
+static bool startBlocklistUpdate()
+{
+  if (blBuildRunning || blBuildReady)
+    return false;
+  if (!updateUrl.length())
+  {
+    snprintf(blStatus, sizeof(blStatus), "no url set");
+    return false;
+  }
+  blBuildRunning = true;
+  snprintf(blStatus, sizeof(blStatus), "starting");
+  String *arg = new String(updateUrl);
+  if (xTaskCreate(blocklistTask, "blfetch", 16384, arg, 1, nullptr) != pdPASS)
+  {
+    delete arg;
+    blBuildRunning = false;
+    snprintf(blStatus, sizeof(blStatus), "task start failed");
+    return false;
+  }
+  return true;
+}
+
+// Main-loop side: file swaps and the update schedule
+static void serviceBlocklist()
+{
+  if (blDropRequested)
+  {
+    closeBlocklist();
+    LittleFS.remove(BLOCKLIST_PATH);
+    blDropRequested = false;
+  }
+  if (blBuildReady)
+  {
+    closeBlocklist();
+    LittleFS.remove(BLOCKLIST_PATH);
+    LittleFS.rename(BLOCKLIST_NEW, BLOCKLIST_PATH);
+    reopenBlocklist();
+    blBuildReady = false;
+    snprintf(blStatus, sizeof(blStatus), blTruncated ? "ok: %u domains (truncated, flash full)" : "ok: %u domains", blCount);
+  }
+
+  if (!updateUrl.length() || blBuildRunning)
+    return;
+  uint32_t now = millis();
+  if (blBuildFailed)
+  {
+    blBuildFailed = false;
+    blNextFetchMs = now + BL_RETRY_MS;
+  }
+  if (blNextFetchMs == 0)
+  {
+    blNextFetchMs = now + (blCount ? updateIntervalH * 3600000UL : BL_FIRST_FETCH_MS);
+    return;
+  }
+  if ((int32_t)(now - blNextFetchMs) >= 0 && (now - lastDnsActivityMs) >= REMOTE_FETCH_IDLE_MS)
+  {
+    startBlocklistUpdate();
+    blNextFetchMs = now + updateIntervalH * 3600000UL;
+  }
+}
+
+static String customJson()
+{
+  String j;
+  for (int i = 0; i < numCustom; i++)
+  {
+    if (i)
+      j += ",";
+    j += "\"" + customDom[i] + "\"";
+  }
+  return j;
+}
+
 // ---- profiles & clients ----
 struct Profile
 {
@@ -187,6 +758,7 @@ struct Profile
   int endBedtimeMinutes;   // (e.g. 420 for 07:00)
   IPAddress upstreamDNS;
   int bedtimeMode; // 0 = Hard Blackout, 1 = Soft/App Limits
+  bool useBlocklist = true; // apply the downloaded blocklist (custom domains always apply)
 };
 
 Profile profiles[10]; // dynamic up to 10 profiles
@@ -396,13 +968,13 @@ static int buildBlocked(uint8_t *pkt, int qend, uint16_t qtype)
   pkt[11] = 0;
   if (qtype == 1)
   {
-    const uint8_t ans[] = {0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 1, 0x2C, 0, 4, 0, 0, 0, 0};
+    const uint8_t ans[] = {0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 0, 0, 0, 0};
     memcpy(pkt + qend, ans, sizeof(ans));
     return qend + sizeof(ans);
   }
   if (qtype == 28)
   {
-    const uint8_t ans[] = {0xC0, 0x0C, 0, 28, 0, 1, 0, 0, 1, 0x2C, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const uint8_t ans[] = {0xC0, 0x0C, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     memcpy(pkt + qend, ans, sizeof(ans));
     return qend + sizeof(ans);
   }
@@ -430,12 +1002,68 @@ static int buildNxdomain(uint8_t *pkt, int qend)
   return qend;
 }
 
+// ---- clock persistence ----
+// Bedtime needs wall-clock time. After a power cut the C3 can boot before NTP is
+// reachable, so restore the last saved time instead of failing open. A restored clock
+// runs behind by the length of the outage until NTP corrects it.
+static const time_t MIN_VALID_EPOCH = 1700000000;
+static const uint32_t CLOCK_SAVE_MS = 15UL * 60 * 1000;
+static Preferences clockPrefs;
+static volatile bool ntpSynced = false;
+static bool clockRestored = false;
+static bool savedAfterSync = false;
+static uint32_t lastClockSaveMs = 0;
+
+static void onNtpSync(struct timeval *tv)
+{
+  (void)tv;
+  ntpSynced = true;
+}
+
+static void restoreClock()
+{
+  clockPrefs.begin("clock", false);
+  uint32_t saved = clockPrefs.getUInt("epoch", 0);
+  if (saved > MIN_VALID_EPOCH && time(nullptr) < MIN_VALID_EPOCH)
+  {
+    struct timeval tv = {(time_t)saved, 0};
+    settimeofday(&tv, nullptr);
+    clockRestored = true;
+    LOG("[clock] restored %u (not yet NTP synced)\n", saved);
+  }
+}
+
+static void serviceClock()
+{
+  uint32_t now = millis();
+  bool firstSync = ntpSynced && !savedAfterSync;
+  if (!firstSync && now - lastClockSaveMs < CLOCK_SAVE_MS)
+    return;
+  time_t t = time(nullptr);
+  if (t < MIN_VALID_EPOCH)
+    return;
+  clockPrefs.putUInt("epoch", (uint32_t)t);
+  lastClockSaveMs = now;
+  if (ntpSynced)
+    savedAfterSync = true;
+}
+
+static const char *clockState()
+{
+  if (ntpSynced)
+    return "ntp";
+  if (time(nullptr) >= MIN_VALID_EPOCH)
+    return clockRestored ? "restored" : "set";
+  return "unset";
+}
+
 void setupTime()
 {
   if (timezoneStr.length() == 0)
   {
     timezoneStr = "UTC0"; // Fallback
   }
+  sntp_set_time_sync_notification_cb(onNtpSync);
   sntp_servermode_dhcp(1); // Enable DHCP provided NTP if available
   configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
 }
@@ -495,9 +1123,10 @@ bool inSoftBlockList(uint8_t pid, const char *domain, size_t len)
 }
 
 // ---- async DNS forwarding ----
+// UDP and TCP queries share one upstream UDP socket and the pending table, so a slow
+// upstream never stalls the main loop.
 WiFiUDP dnsServer;
 WiFiUDP upstream;
-WiFiUDP tcpUpstream;
 
 struct Pending
 {
@@ -507,11 +1136,57 @@ struct Pending
   uint16_t upstreamID; // low bits = slot, high bits random (stale replies can't hit a reused slot)
   uint32_t upstreamIP;
   uint32_t sentMs;
+  int8_t tcpConn; // index into tcpConns, or -1 for UDP
+  uint8_t profileId;
   bool active;
 };
 static_assert((MAX_PENDING & (MAX_PENDING - 1)) == 0, "MAX_PENDING must be a power of two");
 Pending pending[MAX_PENDING];
 int pendingCount = 0;
+
+// ---- TCP DNS connections ----
+WiFiServer tcpDnsServer(DNS_PORT, MAX_TCP_DNS);
+
+struct TcpDnsConn
+{
+  WiFiClient client;
+  uint8_t buf[DNS_BUF_SIZE];
+  uint8_t lenBuf[2];
+  uint8_t lenHave;
+  uint16_t need;
+  uint16_t have;
+  uint32_t lastMs;
+  bool waiting; // query forwarded, reply pending
+  bool active;
+};
+static TcpDnsConn tcpConns[MAX_TCP_DNS];
+
+static void tcpClose(int i)
+{
+  TcpDnsConn &t = tcpConns[i];
+  t.client.stop();
+  t.active = false;
+  t.waiting = false;
+  // Forget queries still in flight for this connection so its slot can be reused safely
+  for (int p = 0; p < MAX_PENDING; p++)
+    if (pending[p].active && pending[p].tcpConn == i)
+    {
+      pending[p].active = false;
+      pendingCount--;
+    }
+}
+
+static void tcpReply(int i, const uint8_t *pkt, int len)
+{
+  TcpDnsConn &t = tcpConns[i];
+  if (t.active && t.client.connected())
+  {
+    uint8_t lenOut[2] = {(uint8_t)(len >> 8), (uint8_t)(len & 0xFF)};
+    t.client.write(lenOut, 2);
+    t.client.write(pkt, len);
+  }
+  tcpClose(i);
+}
 
 static int findFreeSlot()
 {
@@ -527,8 +1202,11 @@ static void expirePending()
   for (int i = 0; i < MAX_PENDING; i++)
     if (pending[i].active && (now - pending[i].sentMs) > UPSTREAM_TIMEOUT_MS)
     {
+      int8_t conn = pending[i].tcpConn;
       pending[i].active = false;
       pendingCount--;
+      if (conn >= 0)
+        tcpClose(conn);
     }
 }
 
@@ -541,7 +1219,7 @@ static int32_t getSecondsUntilBedtime(uint8_t profileId) {
   if (!getLocalTime(&timeinfo, 10)) return -1;
 
   int currentMins = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-  
+
   if (checkTimeWindow(currentMins, startMins, profiles[profileId].endBedtimeMinutes)) {
       return -1;
   }
@@ -555,10 +1233,10 @@ static int32_t getSecondsUntilBedtime(uint8_t profileId) {
 
 static void overrideDnsTTL(uint8_t *pkt, int len, uint32_t max_ttl) {
   if (len < 12) return;
-  
+
   uint16_t qdcount = (pkt[4] << 8) | pkt[5];
   uint16_t ancount = (pkt[6] << 8) | pkt[7];
-  
+
   if (ancount == 0) return;
 
   int offset = 12;
@@ -578,7 +1256,7 @@ static void overrideDnsTTL(uint8_t *pkt, int len, uint32_t max_ttl) {
 
   for (int i = 0; i < ancount; i++) {
       if (offset >= len) break;
-      
+
       if ((pkt[offset] & 0xC0) == 0xC0) {
           offset += 2;
       } else {
@@ -588,340 +1266,453 @@ static void overrideDnsTTL(uint8_t *pkt, int len, uint32_t max_ttl) {
           }
           if (offset < len && pkt[offset] == 0) offset++;
       }
-      
+
       offset += 4;
       if (offset + 4 > len) break;
 
       uint32_t current_ttl = (pkt[offset] << 24) | (pkt[offset+1] << 16) | (pkt[offset+2] << 8) | pkt[offset+3];
-      
+
       if (current_ttl > max_ttl) {
           pkt[offset]   = (max_ttl >> 24) & 0xFF;
           pkt[offset+1] = (max_ttl >> 16) & 0xFF;
           pkt[offset+2] = (max_ttl >> 8)  & 0xFF;
           pkt[offset+3] =  max_ttl        & 0xFF;
       }
-      
+
       offset += 4;
       if (offset + 2 > len) break;
-      
+
       uint16_t rdlength = (pkt[offset] << 8) | pkt[offset+1];
       offset += 2 + rdlength;
   }
 }
 
-static void pollUpstream(uint8_t *buf, int bufSize)
+// Decides how to answer a query. Returns the reply length when the answer was built in
+// place (blocked / NXDOMAIN), 0 when it should be forwarded upstream, -1 to drop it.
+static int judgeQuery(uint32_t ip, uint8_t *pkt, int len, uint8_t *pidOut)
 {
-  int sz = upstream.parsePacket();
-  if (sz <= 0)
-    return;
-  int rlen = upstream.read(buf, bufSize);
-  if (rlen < 2)
-    return;
-  uint16_t upID = (buf[0] << 8) | buf[1];
-  uint16_t replyID = upID & (MAX_PENDING - 1);
-  if (!pending[replyID].active || pending[replyID].upstreamID != upID ||
-      (uint32_t)upstream.remoteIP() != pending[replyID].upstreamIP)
-    return;
-  buf[0] = (pending[replyID].originalID >> 8) & 0xFF;
-  buf[1] = pending[replyID].originalID & 0xFF;
-
-  Dev *c = getClient(pending[replyID].clientIP);
-  uint8_t pid = c ? c->currentProfileId : 0;
-  int32_t secsUntil = getSecondsUntilBedtime(pid);
-  
-  if (secsUntil > 0 && secsUntil < 7200) {
-      uint32_t applied_ttl = (secsUntil < 15) ? 15 : (uint32_t)secsUntil;
-      overrideDnsTTL(buf, rlen, applied_ttl);
-  }
-
-  dnsServer.beginPacket(pending[replyID].clientIP, pending[replyID].clientPort);
-  dnsServer.write(buf, rlen);
-  dnsServer.endPacket();
-  pending[replyID].active = false;
-  pendingCount--;
-}
-
-static uint8_t dnsBuf[DNS_BUF_SIZE];
-
-static void handleDns()
-{
-  int sz = dnsServer.parsePacket();
-  if (sz <= 0)
-    return;
-  lastDnsActivityMs = millis();
-  IPAddress cip = dnsServer.remoteIP();
-  uint16_t cport = dnsServer.remotePort();
-  int qlen = dnsServer.read(dnsBuf, sizeof(dnsBuf));
-  if (qlen < 13)
-    return;
-
   char domain[256];
   uint16_t qtype = 0;
-  int qend = qlen;
-  size_t dl = parseQuery(dnsBuf, qlen, domain, &qtype, &qend);
+  int qend = len;
+  size_t dl = parseQuery(pkt, len, domain, &qtype, &qend);
   if (dl == 0)
     domain[0] = 0;
 
   if (dl && isCanary(domain))
-  {
-    int rlen = buildNxdomain(dnsBuf, qend);
-    dnsServer.beginPacket(cip, cport);
-    dnsServer.write(dnsBuf, rlen);
-    dnsServer.endPacket();
-    return;
-  }
+    return buildNxdomain(pkt, qend);
 
-  if (awaitingArp((uint32_t)cip))
-    return; // dropped on purpose: the retry arrives once the MAC (and profile) is known
+  if (awaitingArp(ip))
+    return -1; // dropped on purpose: the retry arrives once the MAC (and profile) is known
 
-  Dev *c = getClient((uint32_t)cip);
-  uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
+  Dev *c = getClient(ip);
+  uint8_t pid = c ? c->currentProfileId : 0;
   if (pid >= numProfiles)
     pid = 0;
+  *pidOut = pid;
 
   bool blocked = c ? c->manualBlock : false;
   if (!blocked && isTimerActive(pid))
   {
     if (profiles[pid].bedtimeMode == 0)
-    {
       blocked = true;
-    }
     else
-    {
       blocked = inSoftBlockList(pid, domain, dl);
-    }
   }
+  if (!blocked && dl)
+    blocked = isListed(domain, dl, profiles[pid].useBlocklist);
 
   if (blocked)
   {
-    int rlen = buildBlocked(dnsBuf, qend, qtype);
     totalBlocked++;
-    dnsServer.beginPacket(cip, cport);
-    dnsServer.write(dnsBuf, rlen);
-    dnsServer.endPacket();
-  }
-  else
-  {
-    IPAddress pDNS = profiles[pid].upstreamDNS;
-    if ((uint32_t)pDNS == 0)
-      pDNS = IPAddress(1, 1, 1, 1); // Sanity check fallback
-
-    int slot = findFreeSlot();
-    if (slot < 0)
-      return;
-    uint16_t origID = (dnsBuf[0] << 8) | dnsBuf[1];
-    uint16_t upID = (uint16_t)((esp_random() & ~(uint32_t)(MAX_PENDING - 1)) | slot);
-    dnsBuf[0] = (upID >> 8) & 0xFF;
-    dnsBuf[1] = upID & 0xFF;
-    pending[slot].clientIP = (uint32_t)cip;
-    pending[slot].clientPort = cport;
-    pending[slot].originalID = origID;
-    pending[slot].upstreamID = upID;
-    pending[slot].upstreamIP = (uint32_t)pDNS;
-    pending[slot].sentMs = millis();
-    pending[slot].active = true;
-    pendingCount++;
-    upstream.beginPacket(pDNS, 53);
-    upstream.write(dnsBuf, qlen);
-    upstream.endPacket();
-    totalAllowed++;
-  }
-}
-
-// ---- TCP DNS ----
-WiFiServer tcpDnsServer(DNS_PORT);
-WiFiClient tcpDnsClient;
-static uint8_t tcpBuf[DNS_BUF_SIZE];
-
-static int forwardUpstreamSync(uint8_t *pkt, int qlen, IPAddress pDNS)
-{
-  uint16_t origID = (pkt[0] << 8) | pkt[1];
-  pkt[0] = 0xFF;
-  pkt[1] = 0xFE;
-  tcpUpstream.beginPacket(pDNS, 53);
-  tcpUpstream.write(pkt, qlen);
-  tcpUpstream.endPacket();
-  pkt[0] = (origID >> 8) & 0xFF;
-  pkt[1] = origID & 0xFF;
-  uint32_t t0 = millis();
-  while (millis() - t0 < UPSTREAM_TIMEOUT_MS)
-  {
-    int sz = tcpUpstream.parsePacket();
-    if (sz > 0)
-    {
-      int n = tcpUpstream.read(pkt, DNS_BUF_SIZE);
-      if (n >= 2)
-      {
-        pkt[0] = (origID >> 8) & 0xFF;
-        pkt[1] = origID & 0xFF;
-        return n;
-      }
-      return 0;
-    }
-    delay(1);
+    return buildBlocked(pkt, qend, qtype);
   }
   return 0;
 }
 
-static void handleTcpDns()
+static bool forwardQuery(uint8_t *pkt, int len, uint8_t pid, uint32_t cip, uint16_t cport, int8_t tcpConn)
 {
-  if (!tcpDnsClient || !tcpDnsClient.connected())
-  {
-    tcpDnsClient = tcpDnsServer.accept();
-    if (!tcpDnsClient)
-      return;
-  }
-  if (!tcpDnsClient.connected() || tcpDnsClient.available() < 2)
-    return;
-
-  uint8_t lenBuf[2];
-  tcpDnsClient.read(lenBuf, 2);
-  uint16_t msgLen = (lenBuf[0] << 8) | lenBuf[1];
-  if (msgLen > DNS_BUF_SIZE)
-  {
-    tcpDnsClient.stop();
-    return;
-  }
-
-  int total = 0;
-  uint32_t t0 = millis();
-  while (total < msgLen && tcpDnsClient.connected())
-  {
-    if (tcpDnsClient.available())
-    {
-      int n = tcpDnsClient.read(tcpBuf + total, msgLen - total);
-      if (n <= 0)
-        break;
-      total += n;
-    }
-    else
-    {
-      if (millis() - t0 > UPSTREAM_TIMEOUT_MS)
-        break;
-      delay(1);
-    }
-  }
-  if (total < msgLen)
-  {
-    tcpDnsClient.stop();
-    return;
-  }
-
-  char domain[256];
-  uint16_t qtype = 0;
-  int qend = total;
-  size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
-  if (dl == 0)
-    domain[0] = 0;
-  if (dl && isCanary(domain))
-  {
-    int rlen = buildNxdomain(tcpBuf, qend);
-    uint8_t lenOut[2] = {(uint8_t)(rlen >> 8), (uint8_t)(rlen & 0xFF)};
-    tcpDnsClient.write(lenOut, 2);
-    tcpDnsClient.write(tcpBuf, rlen);
-    tcpDnsClient.stop();
-    return;
-  }
-  Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
-  uint8_t pid = c ? c->currentProfileId : 0;
-  if (pid >= numProfiles)
-    pid = 0;
-
-  bool blocked = c ? c->manualBlock : false;
-  if (!blocked && isTimerActive(pid))
-  {
-    if (profiles[pid].bedtimeMode == 0)
-    {
-      blocked = true;
-    }
-    else
-    {
-      blocked = inSoftBlockList(pid, domain, dl);
-    }
-  }
+  int slot = findFreeSlot();
+  if (slot < 0)
+    return false;
   IPAddress pDNS = profiles[pid].upstreamDNS;
   if ((uint32_t)pDNS == 0)
     pDNS = IPAddress(1, 1, 1, 1); // Sanity check fallback
 
-  int rlen = blocked ? buildBlocked(tcpBuf, qend, qtype) : forwardUpstreamSync(tcpBuf, total, pDNS);
-  if (blocked)
-    totalBlocked++;
-  else
-    totalAllowed++;
+  uint16_t origID = (pkt[0] << 8) | pkt[1];
+  uint16_t upID = (uint16_t)((esp_random() & ~(uint32_t)(MAX_PENDING - 1)) | slot);
+  pkt[0] = (upID >> 8) & 0xFF;
+  pkt[1] = upID & 0xFF;
+  Pending &p = pending[slot];
+  p.clientIP = cip;
+  p.clientPort = cport;
+  p.originalID = origID;
+  p.upstreamID = upID;
+  p.upstreamIP = (uint32_t)pDNS;
+  p.sentMs = millis();
+  p.tcpConn = tcpConn;
+  p.profileId = pid;
+  p.active = true;
+  pendingCount++;
+  upstream.beginPacket(pDNS, 53);
+  upstream.write(pkt, len);
+  upstream.endPacket();
+  totalAllowed++;
+  return true;
+}
 
-  if (rlen > 0)
+static uint8_t dnsBuf[DNS_BUF_SIZE];
+
+static void pollUpstream()
+{
+  for (int n = 0; n < DNS_BURST; n++)
   {
-    uint8_t lenOut[2] = {(uint8_t)(rlen >> 8), (uint8_t)(rlen & 0xFF)};
-    tcpDnsClient.write(lenOut, 2);
-    tcpDnsClient.write(tcpBuf, rlen);
+    int sz = upstream.parsePacket();
+    if (sz <= 0)
+      return;
+    int rlen = upstream.read(dnsBuf, sizeof(dnsBuf));
+    if (rlen < 12)
+      continue;
+    uint16_t upID = (dnsBuf[0] << 8) | dnsBuf[1];
+    uint16_t slot = upID & (MAX_PENDING - 1);
+    Pending &p = pending[slot];
+    if (!p.active || p.upstreamID != upID || (uint32_t)upstream.remoteIP() != p.upstreamIP)
+      continue;
+    dnsBuf[0] = (p.originalID >> 8) & 0xFF;
+    dnsBuf[1] = p.originalID & 0xFF;
+
+    // Short TTLs make a new block (or the start of bedtime) take effect quickly
+    uint32_t maxTtl = MAX_FORWARD_TTL;
+    int32_t secsUntil = getSecondsUntilBedtime(p.profileId);
+    if (secsUntil > 0 && (uint32_t)secsUntil < maxTtl)
+      maxTtl = (secsUntil < 15) ? 15 : (uint32_t)secsUntil;
+    overrideDnsTTL(dnsBuf, rlen, maxTtl);
+
+    int8_t conn = p.tcpConn;
+    if (conn < 0)
+    {
+      dnsServer.beginPacket(IPAddress(p.clientIP), p.clientPort);
+      dnsServer.write(dnsBuf, rlen);
+      dnsServer.endPacket();
+    }
+    p.active = false;
+    pendingCount--;
+    if (conn >= 0)
+      tcpReply(conn, dnsBuf, rlen);
   }
-  tcpDnsClient.stop();
+}
+
+static void handleDns()
+{
+  for (int n = 0; n < DNS_BURST; n++)
+  {
+    int sz = dnsServer.parsePacket();
+    if (sz <= 0)
+      return;
+    lastDnsActivityMs = millis();
+    IPAddress cip = dnsServer.remoteIP();
+    uint16_t cport = dnsServer.remotePort();
+    int qlen = dnsServer.read(dnsBuf, sizeof(dnsBuf));
+    if (qlen < 13)
+      continue;
+
+    uint8_t pid = 0;
+    int rlen = judgeQuery((uint32_t)cip, dnsBuf, qlen, &pid);
+    if (rlen > 0)
+    {
+      dnsServer.beginPacket(cip, cport);
+      dnsServer.write(dnsBuf, rlen);
+      dnsServer.endPacket();
+    }
+    else if (rlen == 0)
+    {
+      forwardQuery(dnsBuf, qlen, pid, (uint32_t)cip, cport, -1);
+    }
+  }
+}
+
+// Reads whatever has arrived on one TCP connection; acts once a full query is in.
+static void serviceTcpConn(int i, uint32_t now)
+{
+  TcpDnsConn &t = tcpConns[i];
+  if (t.waiting)
+    return;
+  if (!t.client.connected() && !t.client.available())
+  {
+    tcpClose(i);
+    return;
+  }
+  while (t.client.available())
+  {
+    if (t.lenHave < 2)
+    {
+      int b = t.client.read();
+      if (b < 0)
+        break;
+      t.lenBuf[t.lenHave++] = (uint8_t)b;
+      if (t.lenHave == 2)
+      {
+        t.need = (t.lenBuf[0] << 8) | t.lenBuf[1];
+        if (t.need < 13 || t.need > DNS_BUF_SIZE)
+        {
+          tcpClose(i);
+          return;
+        }
+      }
+      t.lastMs = now;
+      continue;
+    }
+    int n = t.client.read(t.buf + t.have, t.need - t.have);
+    if (n <= 0)
+      break;
+    t.have += n;
+    t.lastMs = now;
+    if (t.have == t.need)
+      break;
+  }
+
+  if (t.lenHave == 2 && t.have == t.need)
+  {
+    lastDnsActivityMs = now;
+    uint8_t pid = 0;
+    int rlen = judgeQuery((uint32_t)t.client.remoteIP(), t.buf, t.have, &pid);
+    if (rlen > 0)
+      tcpReply(i, t.buf, rlen);
+    else if (rlen < 0 || !forwardQuery(t.buf, t.have, pid, 0, 0, (int8_t)i))
+      tcpClose(i);
+    else
+      t.waiting = true;
+  }
+  else if (now - t.lastMs > TCP_DNS_IDLE_MS)
+  {
+    tcpClose(i);
+  }
+}
+
+static void handleTcpDns()
+{
+  uint32_t now = millis();
+  for (int i = 0; i < MAX_TCP_DNS; i++)
+  {
+    if (tcpConns[i].active)
+      continue;
+    WiFiClient c = tcpDnsServer.accept();
+    if (!c)
+      break;
+    TcpDnsConn &t = tcpConns[i];
+    t.client = c;
+    t.lenHave = 0;
+    t.need = 0;
+    t.have = 0;
+    t.lastMs = now;
+    t.waiting = false;
+    t.active = true;
+  }
+  for (int i = 0; i < MAX_TCP_DNS; i++)
+    if (tcpConns[i].active)
+      serviceTcpConn(i, now);
 }
 
 // ---- DHCP server ----
+// Addresses are kept in host byte order. Bound leases are saved to flash so devices keep
+// their address (and INIT-REBOOT requests get ACKed) across C3 reboots.
+static const uint32_t DHCP_LEASE_SECS = 43200;
+static const uint32_t DHCP_OFFER_HOLD_MS = 60000;
+static const uint32_t DHCP_DECLINE_HOLD_MS = 600000;
+static const char *DHCP_LEASES_PATH = "/dhcp_leases.bin";
 WiFiUDP dhcpSock;
 
 struct DhcpLease
 {
   uint8_t mac[6];
   uint32_t ip;
-  uint32_t expires;
+  uint32_t expiresMs;
   bool active;
+  bool bound; // ACKed (vs. only offered, or held after a DECLINE)
 };
 DhcpLease dhcpLeases[MAX_DHCP_LEASES];
 
 static uint32_t dhcpPoolStart = 0;
 static uint32_t dhcpPoolEnd = 0;
 
+static inline uint32_t hostIP(const IPAddress &a) { return ((uint32_t)a[0] << 24) | (a[1] << 16) | (a[2] << 8) | a[3]; }
+static inline IPAddress toIPAddress(uint32_t h) { return IPAddress(h >> 24, (h >> 16) & 0xFF, (h >> 8) & 0xFF, h & 0xFF); }
+static inline void put32(uint8_t *p, uint32_t v)
+{
+  p[0] = v >> 24;
+  p[1] = (v >> 16) & 0xFF;
+  p[2] = (v >> 8) & 0xFF;
+  p[3] = v & 0xFF;
+}
+
 static void initDhcpPool()
 {
-  IPAddress local = WiFi.localIP();
-  IPAddress gw = WiFi.gatewayIP();
-  uint32_t base = (uint32_t)gw;
-  if (base == 0)
-    base = (uint32_t)local;
-  dhcpPoolStart = htonl(base) + 100;
-  dhcpPoolEnd = htonl(base) + 200;
+  uint32_t ip = hostIP(WiFi.localIP());
+  uint32_t mask = hostIP(WiFi.subnetMask());
+  uint32_t net = ip & mask;
+  uint32_t bcast = net | ~mask;
+  dhcpPoolStart = net + 100;
+  dhcpPoolEnd = net + 199;
+  if (dhcpPoolEnd >= bcast)
+    dhcpPoolEnd = bcast - 1;
+  if (dhcpPoolStart > dhcpPoolEnd) // tiny subnet: use all of it
+  {
+    dhcpPoolStart = net + 1;
+    dhcpPoolEnd = bcast - 1;
+  }
 }
 
-static uint32_t findDhcpLease(const uint8_t *mac)
+static bool ipInPool(uint32_t ip)
+{
+  return ip >= dhcpPoolStart && ip <= dhcpPoolEnd &&
+         ip != hostIP(WiFi.localIP()) && ip != hostIP(WiFi.gatewayIP());
+}
+
+static bool leaseLive(const DhcpLease &l, uint32_t now)
+{
+  return l.active && (int32_t)(l.expiresMs - now) > 0;
+}
+
+static DhcpLease *findLeaseByMac(const uint8_t *mac, uint32_t now)
 {
   for (int i = 0; i < MAX_DHCP_LEASES; i++)
-    if (dhcpLeases[i].active && memcmp(dhcpLeases[i].mac, mac, 6) == 0)
-      return dhcpLeases[i].ip;
+    if (leaseLive(dhcpLeases[i], now) && memcmp(dhcpLeases[i].mac, mac, 6) == 0)
+      return &dhcpLeases[i];
+  return nullptr;
+}
+
+static DhcpLease *findLeaseByIp(uint32_t ip, uint32_t now)
+{
+  for (int i = 0; i < MAX_DHCP_LEASES; i++)
+    if (leaseLive(dhcpLeases[i], now) && dhcpLeases[i].ip == ip)
+      return &dhcpLeases[i];
+  return nullptr;
+}
+
+static uint32_t pickFreeIp(uint32_t requested, uint32_t now)
+{
+  if (ipInPool(requested) && !findLeaseByIp(requested, now))
+    return requested;
+  for (uint32_t c = dhcpPoolStart; c <= dhcpPoolEnd; c++)
+    if (ipInPool(c) && !findLeaseByIp(c, now))
+      return c;
   return 0;
 }
 
-static uint32_t assignDhcpIP(const uint8_t *mac)
+static DhcpLease *allocLease(const uint8_t *mac, uint32_t ip, uint32_t now, uint32_t holdMs)
 {
-  uint32_t existing = findDhcpLease(mac);
-  if (existing)
-    return existing;
-  for (uint32_t candidate = dhcpPoolStart; candidate <= dhcpPoolEnd; candidate++)
-  {
-    bool taken = false;
-    for (int i = 0; i < MAX_DHCP_LEASES; i++)
-      if (dhcpLeases[i].active && dhcpLeases[i].ip == candidate)
-      {
-        taken = true;
-        break;
-      }
-    if (!taken)
+  for (int i = 0; i < MAX_DHCP_LEASES; i++)
+    if (!leaseLive(dhcpLeases[i], now))
     {
-      for (int i = 0; i < MAX_DHCP_LEASES; i++)
-      {
-        if (!dhcpLeases[i].active)
-        {
-          memcpy(dhcpLeases[i].mac, mac, 6);
-          dhcpLeases[i].ip = candidate;
-          dhcpLeases[i].expires = millis() + 86400000UL;
-          dhcpLeases[i].active = true;
-          return candidate;
-        }
-      }
+      DhcpLease &l = dhcpLeases[i];
+      memcpy(l.mac, mac, 6);
+      l.ip = ip;
+      l.expiresMs = now + holdMs;
+      l.active = true;
+      l.bound = false;
+      return &l;
     }
+  return nullptr;
+}
+
+static void saveDhcpLeases()
+{
+  File f = LittleFS.open(DHCP_LEASES_PATH, "w");
+  if (!f)
+    return;
+  uint32_t now = millis();
+  for (int i = 0; i < MAX_DHCP_LEASES; i++)
+    if (leaseLive(dhcpLeases[i], now) && dhcpLeases[i].bound)
+    {
+      uint8_t rec[10];
+      memcpy(rec, dhcpLeases[i].mac, 6);
+      put32(rec + 6, dhcpLeases[i].ip);
+      f.write(rec, sizeof(rec));
+    }
+  f.close();
+}
+
+static void loadDhcpLeases()
+{
+  memset(dhcpLeases, 0, sizeof(dhcpLeases));
+  File f = LittleFS.open(DHCP_LEASES_PATH, "r");
+  if (!f)
+    return;
+  uint32_t now = millis();
+  uint8_t rec[10];
+  while (f.read(rec, sizeof(rec)) == sizeof(rec))
+  {
+    uint32_t ip = ((uint32_t)rec[6] << 24) | (rec[7] << 16) | (rec[8] << 8) | rec[9];
+    if (!ipInPool(ip) || findLeaseByIp(ip, now))
+      continue; // pool moved (different network) or duplicate
+    DhcpLease *l = allocLease(rec, ip, now, DHCP_LEASE_SECS * 1000UL);
+    if (!l)
+      break;
+    l->bound = true;
   }
-  return 0;
+  f.close();
+}
+
+static void sendDhcpReply(const uint8_t *req, uint8_t type, uint32_t yiaddr, uint32_t ciaddr)
+{
+  uint8_t r[300];
+  memset(r, 0, sizeof(r));
+  r[0] = 2;
+  r[1] = 1;
+  r[2] = 6;
+  memcpy(r + 4, req + 4, 4);   // xid
+  memcpy(r + 10, req + 10, 2); // flags
+  put32(r + 16, yiaddr);
+  memcpy(r + 24, req + 24, 4);  // giaddr
+  memcpy(r + 28, req + 28, 16); // chaddr
+  r[236] = 0x63;
+  r[237] = 0x82;
+  r[238] = 0x53;
+  r[239] = 0x63;
+
+  uint32_t own = hostIP(WiFi.localIP());
+  int o = 240;
+  r[o++] = 53;
+  r[o++] = 1;
+  r[o++] = type;
+  r[o++] = 54;
+  r[o++] = 4;
+  put32(r + o, own);
+  o += 4;
+  if (type != 6) // everything except NAK carries the configuration
+  {
+    put32(r + 20, own); // siaddr
+    r[o++] = 1;
+    r[o++] = 4;
+    put32(r + o, hostIP(WiFi.subnetMask()));
+    o += 4;
+    r[o++] = 3;
+    r[o++] = 4;
+    put32(r + o, hostIP(WiFi.gatewayIP()));
+    o += 4;
+    r[o++] = 6; // DNS: only us, so there is no fallback resolver to escape to
+    r[o++] = 4;
+    put32(r + o, own);
+    o += 4;
+    r[o++] = 51;
+    r[o++] = 4;
+    put32(r + o, DHCP_LEASE_SECS);
+    o += 4;
+    r[o++] = 58;
+    r[o++] = 4;
+    put32(r + o, DHCP_LEASE_SECS / 2);
+    o += 4;
+    r[o++] = 59;
+    r[o++] = 4;
+    put32(r + o, DHCP_LEASE_SECS / 8 * 7);
+    o += 4;
+  }
+  r[o++] = 0xFF;
+
+  // A client without an address can't receive unicast yet: broadcast (RFC 2131 4.1)
+  bool unicast = ciaddr != 0 && type != 6;
+  dhcpSock.beginPacket(unicast ? toIPAddress(ciaddr) : IPAddress(255, 255, 255, 255), 68);
+  dhcpSock.write(r, sizeof(r)); // padded to the 300-byte BOOTP minimum
+  dhcpSock.endPacket();
 }
 
 static void handleDhcp()
@@ -929,112 +1720,116 @@ static void handleDhcp()
   int sz = dhcpSock.parsePacket();
   if (sz <= 0)
     return;
-  uint8_t dhcp[548];
-  int len = dhcpSock.read(dhcp, sizeof(dhcp));
-  if (len < 240 || dhcp[0] != 1)
+  uint8_t req[548];
+  int len = dhcpSock.read(req, sizeof(req));
+  if (len < 240 || req[0] != 1 || req[1] != 1 || req[2] != 6)
     return;
-  uint32_t xid = (dhcp[4] << 24) | (dhcp[5] << 16) | (dhcp[6] << 8) | dhcp[7];
-  uint8_t *mac = dhcp + 28;
-  if (dhcp[236] != 0x63 || dhcp[237] != 0x82 || dhcp[238] != 0x53 || dhcp[239] != 0x63)
+  if (req[236] != 0x63 || req[237] != 0x82 || req[238] != 0x53 || req[239] != 0x63)
     return;
-
-  bool hasCiaddr = dhcp[12] | dhcp[13] | dhcp[14] | dhcp[15];
-  IPAddress ourIP = WiFi.localIP();
 
   uint8_t msgType = 0;
-  bool otherServer = false;
+  uint32_t reqIP = 0, serverId = 0;
   int oi = 240;
-  while (oi < len && dhcp[oi] != 0xFF)
+  while (oi < len && req[oi] != 0xFF)
   {
-    uint8_t opt = dhcp[oi++];
+    uint8_t opt = req[oi++];
     if (opt == 0)
       continue;
     if (oi >= len)
       break;
-    uint8_t optLen = dhcp[oi++];
+    uint8_t optLen = req[oi++];
     if (oi + optLen > len)
       break;
     if (opt == 53 && optLen == 1)
-      msgType = dhcp[oi];
+      msgType = req[oi];
+    if (opt == 50 && optLen == 4)
+      reqIP = ((uint32_t)req[oi] << 24) | (req[oi + 1] << 16) | (req[oi + 2] << 8) | req[oi + 3];
     if (opt == 54 && optLen == 4)
-      otherServer = !(IPAddress(dhcp[oi], dhcp[oi + 1], dhcp[oi + 2], dhcp[oi + 3]) == ourIP);
+      serverId = ((uint32_t)req[oi] << 24) | (req[oi + 1] << 16) | (req[oi + 2] << 8) | req[oi + 3];
     oi += optLen;
   }
-  if (msgType != 1 && msgType != 3)
+
+  const uint8_t *mac = req + 28;
+  uint32_t ciaddr = ((uint32_t)req[12] << 24) | (req[13] << 16) | (req[14] << 8) | req[15];
+  uint32_t now = millis();
+  bool forUs = serverId == 0 || serverId == hostIP(WiFi.localIP());
+
+  switch (msgType)
+  {
+  case 1: // DISCOVER
+  {
+    DhcpLease *l = findLeaseByMac(mac, now);
+    if (!l)
+    {
+      uint32_t ip = pickFreeIp(reqIP, now);
+      if (!ip)
+        return; // pool exhausted
+      l = allocLease(mac, ip, now, DHCP_OFFER_HOLD_MS);
+      if (!l)
+        return;
+    }
+    sendDhcpReply(req, 2, l->ip, 0);
     return;
-  if (otherServer)
-    return; // client accepted another server's offer
-
-  uint32_t clientIP = assignDhcpIP(mac);
-  if (clientIP == 0)
+  }
+  case 3: // REQUEST
+  {
+    DhcpLease *l = findLeaseByMac(mac, now);
+    if (!forUs)
+    {
+      if (l && !l->bound)
+        l->active = false; // client took another server's offer
+      return;
+    }
+    uint32_t want = reqIP ? reqIP : ciaddr;
+    if (!l && ipInPool(want) && !findLeaseByIp(want, now))
+      l = allocLease(mac, want, now, DHCP_OFFER_HOLD_MS);
+    if (!l || l->ip != want)
+    {
+      // We are meant to be the only DHCP server: NAK so the client restarts discovery
+      // instead of hanging on to a lease (and DNS) from the router.
+      sendDhcpReply(req, 6, 0, 0);
+      return;
+    }
+    bool isNew = !l->bound;
+    l->bound = true;
+    l->expiresMs = now + DHCP_LEASE_SECS * 1000UL;
+    sendDhcpReply(req, 5, l->ip, ciaddr);
+    if (isNew)
+      saveDhcpLeases();
     return;
+  }
+  case 4: // DECLINE: the address is in use by someone else, park it for a while
+  {
+    DhcpLease *l = findLeaseByMac(mac, now);
+    if (!forUs || !l)
+      return;
+    bool wasBound = l->bound;
+    memset(l->mac, 0, 6);
+    l->bound = false;
+    l->expiresMs = now + DHCP_DECLINE_HOLD_MS;
+    if (wasBound)
+      saveDhcpLeases();
+    return;
+  }
+  case 7: // RELEASE
+  {
+    DhcpLease *l = findLeaseByMac(mac, now);
+    if (!forUs || !l)
+      return;
+    bool wasBound = l->bound;
+    l->active = false;
+    if (wasBound)
+      saveDhcpLeases();
+    return;
+  }
+  }
+}
 
-  memset(dhcp, 0, 240);
-  dhcp[0] = 2;
-  dhcp[1] = 1;
-  dhcp[2] = 6;
-  dhcp[4] = (xid >> 24) & 0xFF;
-  dhcp[5] = (xid >> 16) & 0xFF;
-  dhcp[6] = (xid >> 8) & 0xFF;
-  dhcp[7] = xid & 0xFF;
-  dhcp[10] = 0x80;
-  dhcp[16] = (clientIP >> 24) & 0xFF;
-  dhcp[17] = (clientIP >> 16) & 0xFF;
-  dhcp[18] = (clientIP >> 8) & 0xFF;
-  dhcp[19] = clientIP & 0xFF;
-
-  dhcp[20] = ourIP[0];
-  dhcp[21] = ourIP[1];
-  dhcp[22] = ourIP[2];
-  dhcp[23] = ourIP[3];
-  memcpy(dhcp + 28, mac, 6);
-  dhcp[236] = 0x63;
-  dhcp[237] = 0x82;
-  dhcp[238] = 0x53;
-  dhcp[239] = 0x63;
-
-  int o = 240;
-  dhcp[o++] = 53;
-  dhcp[o++] = 1;
-  dhcp[o++] = (msgType == 1) ? 2 : 5;
-  dhcp[o++] = 54;
-  dhcp[o++] = 4;
-  dhcp[o++] = ourIP[0];
-  dhcp[o++] = ourIP[1];
-  dhcp[o++] = ourIP[2];
-  dhcp[o++] = ourIP[3];
-  IPAddress mask = WiFi.subnetMask();
-  dhcp[o++] = 1;
-  dhcp[o++] = 4;
-  dhcp[o++] = mask[0];
-  dhcp[o++] = mask[1];
-  dhcp[o++] = mask[2];
-  dhcp[o++] = mask[3];
-  IPAddress gw = WiFi.gatewayIP();
-  dhcp[o++] = 3;
-  dhcp[o++] = 4;
-  dhcp[o++] = gw[0];
-  dhcp[o++] = gw[1];
-  dhcp[o++] = gw[2];
-  dhcp[o++] = gw[3];
-  dhcp[o++] = 6;
-  dhcp[o++] = 4;
-  dhcp[o++] = ourIP[0];
-  dhcp[o++] = ourIP[1];
-  dhcp[o++] = ourIP[2];
-  dhcp[o++] = ourIP[3];
-  dhcp[o++] = 51;
-  dhcp[o++] = 4;
-  dhcp[o++] = 0;
-  dhcp[o++] = 0;
-  dhcp[o++] = 0x51;
-  dhcp[o++] = 0x80;
-  dhcp[o++] = 0xFF;
-
-  // A client without an address can't receive unicast yet: broadcast (RFC 2131 4.1)
-  dhcpSock.beginPacket(hasCiaddr ? dhcpSock.remoteIP() : IPAddress(255, 255, 255, 255), 68);
-  dhcpSock.write(dhcp, o);
-  dhcpSock.endPacket();
+static void startDhcpServer()
+{
+  initDhcpPool();
+  loadDhcpLeases();
+  dhcpSock.begin(DHCP_PORT);
 }
 
 // ---- auth ----
@@ -1177,6 +1972,12 @@ static void handleStats()
              ",\"token\":\"" + jesc(authToken) + "\"" +
              ",\"timezone\":\"" + jesc(timezoneStr) + "\"" +
              ",\"version\":\"" + jesc(FW_VERSION) + "\"" +
+             ",\"clock\":\"" + clockState() + "\"" +
+             ",\"blocked\":" + totalBlocked + ",\"allowed\":" + totalAllowed +
+             ",\"blocklist\":{\"url\":\"" + jesc(updateUrl) + "\",\"interval\":" + updateIntervalH +
+             ",\"count\":" + blCount + ",\"status\":\"" + jesc(String(blStatus)) + "\"" +
+             ",\"running\":" + (blBuildRunning ? "true" : "false") + "}" +
+             ",\"custom\":[" + customJson() + "]" +
              ",\"profiles\":[";
   for (int i = 0; i < numProfiles; i++)
   {
@@ -1186,6 +1987,7 @@ static void handleStats()
          ",\"end\":" + String(profiles[i].endBedtimeMinutes) +
          ",\"mode\":" + String(profiles[i].bedtimeMode) +
          ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"" +
+         ",\"bl\":" + (profiles[i].useBlocklist ? "true" : "false") +
          ",\"limits\":[";
     for (int k = 0; k < numProfileAppLimits[i]; k++)
     {
@@ -1285,6 +2087,8 @@ static void handleSaveProfiles()
           profiles[idx].upstreamDNS = ip;
         }
       }
+      if (!p["bl"].isNull())
+        profiles[idx].useBlocklist = p["bl"].as<bool>();
       idx++;
     }
     if (idx > 0)
@@ -1429,8 +2233,7 @@ static void handleDhcpToggle()
   saveDhcpCfg();
   if (dhcpEnabled)
   {
-    initDhcpPool();
-    dhcpSock.begin(DHCP_PORT);
+    startDhcpServer();
     web.send(200, "text/plain", "DHCP enabled — disable your router's DHCP!");
   }
   else
@@ -1466,6 +2269,34 @@ static void handleSetWifi()
   ESP.restart();
 }
 
+static void handleCustom()
+{
+  sendCorsHeaders();
+  if (!checkAuth())
+  {
+    requireAuth();
+    return;
+  }
+  if (!checkToken())
+  {
+    web.send(403, "text/plain", "bad token");
+    return;
+  }
+  if (web.hasArg("add"))
+  {
+    if (!addCustom(web.arg("add")))
+    {
+      web.send(400, "text/plain", numCustom >= MAX_CUSTOM ? "custom list full" : "invalid or duplicate domain");
+      return;
+    }
+  }
+  else if (web.hasArg("remove"))
+  {
+    removeCustom(web.arg("remove"));
+  }
+  web.send(200, "application/json", "[" + customJson() + "]");
+}
+
 // ---- remote config ----
 static void loadUpdateCfg()
 {
@@ -1481,6 +2312,8 @@ static void loadUpdateCfg()
   f.close();
   if (updateIntervalH < 1)
     updateIntervalH = 1;
+  if (updateIntervalH > MAX_UPDATE_INTERVAL_H)
+    updateIntervalH = MAX_UPDATE_INTERVAL_H;
 }
 
 static void saveUpdateCfg()
@@ -1493,12 +2326,6 @@ static void saveUpdateCfg()
   f.close();
 }
 
-static bool fetchBlocklist(String url)
-{
-  (void)url;
-  updateStatus = "disabled";
-  return false;
-}
 
 // ---- firmware OTA ----
 static bool fwUploadAuthorized = false;
@@ -1553,6 +2380,36 @@ static void handleFwUpload()
     Update.abort();
     LOGN("[fw-ota] aborted");
   }
+}
+
+static const uint32_t RESOLVER_CHECK_MS = 60000;
+static uint32_t lastResolverCheckMs = 0;
+
+static void pinResolverCb(void *arg)
+{
+  (void)arg;
+  ip_addr_t d;
+  IPAddress p = profiles[0].upstreamDNS;
+  if ((uint32_t)p == 0)
+    p = UPSTREAM;
+  IP_ADDR4(&d, p[0], p[1], p[2], p[3]);
+  dns_setserver(0, &d);
+  IP_ADDR4(&d, 1, 1, 1, 1);
+  dns_setserver(1, &d);
+}
+
+static void pinOwnResolver()
+{
+  tcpip_callback(pinResolverCb, nullptr);
+}
+
+// DHCP renewals overwrite the resolver, so re-pin it periodically
+static void serviceOwnResolver()
+{
+  if (millis() - lastResolverCheckMs < RESOLVER_CHECK_MS)
+    return;
+  lastResolverCheckMs = millis();
+  pinOwnResolver();
 }
 
 // ---- WiFi config ----
@@ -1786,6 +2643,7 @@ static void saveConfig()
     doc["profiles"][i]["end"] = profiles[i].endBedtimeMinutes;
     doc["profiles"][i]["mode"] = profiles[i].bedtimeMode;
     doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
+    doc["profiles"][i]["bl"] = profiles[i].useBlocklist;
     JsonArray limits = doc["profiles"][i]["limits"].to<JsonArray>();
     for (int j = 0; j < numProfileAppLimits[i]; j++)
     {
@@ -1878,6 +2736,8 @@ static void loadConfig()
           profiles[idx].upstreamDNS = ip;
         }
       }
+      if (!p["bl"].isNull())
+        profiles[idx].useBlocklist = p["bl"].as<bool>();
       idx++;
     }
     if (idx > 0)
@@ -1949,12 +2809,12 @@ void setup()
   loadAuth();
   loadCustom();
   loadConfig();
+  restoreClock();
   setupTime();
   loadUpdateCfg();
   loadDhcpCfg();
-  // reopenBlocklist();
-  LOG("[cfg] custom:%d auth:%s\n", numCustom, authPassword.c_str());
-  LOGN("[cfg] dashboard password: " + authPassword);
+  reopenBlocklist();
+  LOG("[cfg] custom:%d blocklist:%u\n", numCustom, blCount);
 
   if (!connectWiFi())
   {
@@ -1970,32 +2830,34 @@ void setup()
 
   dnsServer.begin(DNS_PORT);
   upstream.begin(0);
-  tcpUpstream.begin(0);
   tcpDnsServer.begin();
+  pinOwnResolver();
   web.collectHeaders(COLLECTED_HEADERS, sizeof(COLLECTED_HEADERS) / sizeof(char *));
   web.on("/", HTTP_GET, handleRoot);
   web.on("/stats.json", HTTP_GET, handleStats);
   web.on("/api/profiles", HTTP_POST, handleSaveProfiles);
   web.on("/api/assign", HTTP_POST, handleAssignProfile);
   web.on("/setpass", HTTP_POST, handleSetPass);
-  // web.on("/ban", handleBan);
-  // web.on("/addblock", handleAddBlock);
-  // web.on("/unblock", handleUnblock);
-  // web.on("/upload", HTTP_POST, handleUploadDone, handleUpload);
+  web.on("/api/custom", HTTP_POST, handleCustom);
   web.on("/update", HTTP_POST, handleFwUpdateDone, handleFwUpload);
   web.on("/fetchnow", HTTP_POST, []()
          {
+    sendCorsHeaders();
     if (!checkAuth()) { requireAuth(); return; }
     if (!checkToken()) { web.send(403, "text/plain", "bad token"); return; }
-    fetchBlocklist(updateUrl);
-    web.send(200, "text/plain", updateStatus); });
+    if (startBlocklistUpdate())
+      web.send(200, "text/plain", "started");
+    else
+      web.send(blBuildRunning || blBuildReady ? 409 : 400, "text/plain", blBuildRunning || blBuildReady ? "already running" : blStatus); });
   web.on("/setupdate", HTTP_POST, []()
          {
+    sendCorsHeaders();
     if (!checkAuth()) { requireAuth(); return; }
     if (!checkToken()) { web.send(403, "text/plain", "bad token"); return; }
-    if (web.hasArg("u")) updateUrl = web.arg("u");
-    if (web.hasArg("h")) { updateIntervalH = web.arg("h").toInt(); if (updateIntervalH < 1) updateIntervalH = 1; }
+    if (web.hasArg("u")) { updateUrl = web.arg("u"); updateUrl.trim(); }
+    if (web.hasArg("h")) { updateIntervalH = constrain(web.arg("h").toInt(), 1, (long)MAX_UPDATE_INTERVAL_H); }
     saveUpdateCfg();
+    blNextFetchMs = 0; // reschedule with the new settings
     web.send(200, "text/plain", "ok"); });
   web.on("/dhcp", HTTP_POST, handleDhcpToggle);
   web.on("/setwifi", HTTP_POST, handleSetWifi);
@@ -2017,8 +2879,7 @@ void setup()
 
   if (dhcpEnabled)
   {
-    initDhcpPool();
-    dhcpSock.begin(DHCP_PORT);
+    startDhcpServer();
     LOGN("DHCP server enabled on :67");
   }
 
@@ -2030,11 +2891,14 @@ void loop()
   ArduinoOTA.handle();
   web.handleClient();
   handleDns();
-  pollUpstream(dnsBuf, DNS_BUF_SIZE);
+  pollUpstream();
   expirePending();
   handleTcpDns();
   if (dhcpEnabled)
     handleDhcp();
+  serviceBlocklist();
+  serviceClock();
+  serviceOwnResolver();
 
   if (pendingCount > 0)
     lastDnsActivityMs = millis();

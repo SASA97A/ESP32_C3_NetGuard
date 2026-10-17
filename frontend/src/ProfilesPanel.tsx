@@ -162,6 +162,19 @@ export default function ProfilesPanel({
                     }`}
                   />
                 </div>
+                <label className={`flex items-center justify-between gap-3 ${editingIdx !== idx ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <span>
+                    <span className="block font-label-md text-label-md text-on-surface">Apply Blocklist</span>
+                    <span className="block font-label-sm text-label-sm text-on-surface-variant">Block domains from the downloaded list. Custom domains always apply.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={prof.bl !== false}
+                    disabled={editingIdx !== idx}
+                    onChange={(e) => onUpdateProfileField(idx, 'bl', e.target.checked)}
+                    className="w-5 h-5 accent-primary shrink-0"
+                  />
+                </label>
               </div>
             </div>
 
