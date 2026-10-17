@@ -14,6 +14,7 @@
 #include <sntp.h>
 #include "lwip/etharp.h"
 #include "lwip/netif.h"
+#include "lwip/tcpip.h"
 #include "secrets.h"
 #include "scheduler.h"
 #include "dashboard_html.h"
@@ -223,6 +224,64 @@ static void getMac(uint32_t ip, uint8_t *mac)
       return;
     }
 }
+
+// ---- ARP warm-up ----
+// A device that just booted (or every device after the C3 reboots) has no ARP entry yet,
+// so its MAC is unknown and it would land on the unrestricted default profile. Drop its
+// first queries while an ARP request resolves the MAC; stub resolvers retry within ~1s.
+static const uint32_t ARP_WAIT_MS = 3000;
+static const uint32_t ARP_REPROBE_MS = 60000;
+static const int MAX_ARP_PROBES = 8;
+struct ArpProbe
+{
+  uint32_t ip;
+  uint32_t sentMs;
+};
+static ArpProbe arpProbes[MAX_ARP_PROBES];
+
+static void arpRequestCb(void *arg)
+{
+  ip4_addr_t ipa;
+  ipa.addr = (uint32_t)(uintptr_t)arg;
+  if (netif_default)
+    etharp_request(netif_default, &ipa);
+}
+
+static bool awaitingArp(uint32_t ip)
+{
+  static const uint8_t zero[6] = {0};
+  uint8_t mac[6];
+  getMac(ip, mac);
+  if (memcmp(mac, zero, 6) != 0)
+    return false;
+  // IP already bound to a known device: the IP fallback in getClient handles it
+  for (int i = 0; i < numClients; i++)
+    if (clients[i].ip == ip && clients[i].mac != "00:00:00:00:00:00")
+      return false;
+
+  uint32_t now = millis();
+  int slot = 0;
+  for (int i = 0; i < MAX_ARP_PROBES; i++)
+  {
+    if (arpProbes[i].ip == ip)
+    {
+      uint32_t age = now - arpProbes[i].sentMs;
+      if (age < ARP_WAIT_MS)
+        return true;
+      if (age < ARP_REPROBE_MS)
+        return false; // ARP never answered: give up and serve it as unknown
+      slot = i;
+      break;
+    }
+    if (now - arpProbes[i].sentMs > now - arpProbes[slot].sentMs)
+      slot = i;
+  }
+  arpProbes[slot].ip = ip;
+  arpProbes[slot].sentMs = now;
+  tcpip_callback(arpRequestCb, (void *)(uintptr_t)ip);
+  return true;
+}
+
 static Dev *getClient(uint32_t ip)
 {
   uint8_t mbuf[6];
@@ -350,6 +409,27 @@ static int buildBlocked(uint8_t *pkt, int qend, uint16_t qtype)
   return qend;
 }
 
+// Canary domains: NXDOMAIN tells Firefox to disable DoH and Safari/iOS to disable
+// iCloud Private Relay, so those clients keep using this resolver.
+static const char *CANARY_DOMAINS[] = {"use-application-dns.net", "mask.icloud.com", "mask-h2.icloud.com"};
+
+static bool isCanary(const char *domain)
+{
+  for (const char *d : CANARY_DOMAINS)
+    if (strcmp(domain, d) == 0)
+      return true;
+  return false;
+}
+
+static int buildNxdomain(uint8_t *pkt, int qend)
+{
+  pkt[2] = 0x81;
+  pkt[3] = 0x83;
+  for (int i = 6; i < 12; i++)
+    pkt[i] = 0;
+  return qend;
+}
+
 void setupTime()
 {
   if (timezoneStr.length() == 0)
@@ -424,9 +504,12 @@ struct Pending
   uint32_t clientIP;
   uint16_t clientPort;
   uint16_t originalID;
+  uint16_t upstreamID; // low bits = slot, high bits random (stale replies can't hit a reused slot)
+  uint32_t upstreamIP;
   uint32_t sentMs;
   bool active;
 };
+static_assert((MAX_PENDING & (MAX_PENDING - 1)) == 0, "MAX_PENDING must be a power of two");
 Pending pending[MAX_PENDING];
 int pendingCount = 0;
 
@@ -534,8 +617,10 @@ static void pollUpstream(uint8_t *buf, int bufSize)
   int rlen = upstream.read(buf, bufSize);
   if (rlen < 2)
     return;
-  uint16_t replyID = (buf[0] << 8) | buf[1];
-  if (replyID >= MAX_PENDING || !pending[replyID].active)
+  uint16_t upID = (buf[0] << 8) | buf[1];
+  uint16_t replyID = upID & (MAX_PENDING - 1);
+  if (!pending[replyID].active || pending[replyID].upstreamID != upID ||
+      (uint32_t)upstream.remoteIP() != pending[replyID].upstreamIP)
     return;
   buf[0] = (pending[replyID].originalID >> 8) & 0xFF;
   buf[1] = pending[replyID].originalID & 0xFF;
@@ -574,6 +659,20 @@ static void handleDns()
   uint16_t qtype = 0;
   int qend = qlen;
   size_t dl = parseQuery(dnsBuf, qlen, domain, &qtype, &qend);
+  if (dl == 0)
+    domain[0] = 0;
+
+  if (dl && isCanary(domain))
+  {
+    int rlen = buildNxdomain(dnsBuf, qend);
+    dnsServer.beginPacket(cip, cport);
+    dnsServer.write(dnsBuf, rlen);
+    dnsServer.endPacket();
+    return;
+  }
+
+  if (awaitingArp((uint32_t)cip))
+    return; // dropped on purpose: the retry arrives once the MAC (and profile) is known
 
   Dev *c = getClient((uint32_t)cip);
   uint8_t pid = c ? c->currentProfileId : 0; // Default to restricted if unknown
@@ -611,11 +710,14 @@ static void handleDns()
     if (slot < 0)
       return;
     uint16_t origID = (dnsBuf[0] << 8) | dnsBuf[1];
-    dnsBuf[0] = (slot >> 8) & 0xFF;
-    dnsBuf[1] = slot & 0xFF;
+    uint16_t upID = (uint16_t)((esp_random() & ~(uint32_t)(MAX_PENDING - 1)) | slot);
+    dnsBuf[0] = (upID >> 8) & 0xFF;
+    dnsBuf[1] = upID & 0xFF;
     pending[slot].clientIP = (uint32_t)cip;
     pending[slot].clientPort = cport;
     pending[slot].originalID = origID;
+    pending[slot].upstreamID = upID;
+    pending[slot].upstreamIP = (uint32_t)pDNS;
     pending[slot].sentMs = millis();
     pending[slot].active = true;
     pendingCount++;
@@ -709,6 +811,17 @@ static void handleTcpDns()
   uint16_t qtype = 0;
   int qend = total;
   size_t dl = parseQuery(tcpBuf, total, domain, &qtype, &qend);
+  if (dl == 0)
+    domain[0] = 0;
+  if (dl && isCanary(domain))
+  {
+    int rlen = buildNxdomain(tcpBuf, qend);
+    uint8_t lenOut[2] = {(uint8_t)(rlen >> 8), (uint8_t)(rlen & 0xFF)};
+    tcpDnsClient.write(lenOut, 2);
+    tcpDnsClient.write(tcpBuf, rlen);
+    tcpDnsClient.stop();
+    return;
+  }
   Dev *c = getClient((uint32_t)tcpDnsClient.remoteIP());
   uint8_t pid = c ? c->currentProfileId : 0;
   if (pid >= numProfiles)
@@ -825,7 +938,11 @@ static void handleDhcp()
   if (dhcp[236] != 0x63 || dhcp[237] != 0x82 || dhcp[238] != 0x53 || dhcp[239] != 0x63)
     return;
 
+  bool hasCiaddr = dhcp[12] | dhcp[13] | dhcp[14] | dhcp[15];
+  IPAddress ourIP = WiFi.localIP();
+
   uint8_t msgType = 0;
+  bool otherServer = false;
   int oi = 240;
   while (oi < len && dhcp[oi] != 0xFF)
   {
@@ -835,12 +952,18 @@ static void handleDhcp()
     if (oi >= len)
       break;
     uint8_t optLen = dhcp[oi++];
+    if (oi + optLen > len)
+      break;
     if (opt == 53 && optLen == 1)
       msgType = dhcp[oi];
+    if (opt == 54 && optLen == 4)
+      otherServer = !(IPAddress(dhcp[oi], dhcp[oi + 1], dhcp[oi + 2], dhcp[oi + 3]) == ourIP);
     oi += optLen;
   }
   if (msgType != 1 && msgType != 3)
     return;
+  if (otherServer)
+    return; // client accepted another server's offer
 
   uint32_t clientIP = assignDhcpIP(mac);
   if (clientIP == 0)
@@ -860,7 +983,6 @@ static void handleDhcp()
   dhcp[18] = (clientIP >> 8) & 0xFF;
   dhcp[19] = clientIP & 0xFF;
 
-  IPAddress ourIP = WiFi.localIP();
   dhcp[20] = ourIP[0];
   dhcp[21] = ourIP[1];
   dhcp[22] = ourIP[2];
@@ -909,7 +1031,8 @@ static void handleDhcp()
   dhcp[o++] = 0x80;
   dhcp[o++] = 0xFF;
 
-  dhcpSock.beginPacket(dhcpSock.remoteIP(), 68);
+  // A client without an address can't receive unicast yet: broadcast (RFC 2131 4.1)
+  dhcpSock.beginPacket(hasCiaddr ? dhcpSock.remoteIP() : IPAddress(255, 255, 255, 255), 68);
   dhcpSock.write(dhcp, o);
   dhcpSock.endPacket();
 }
@@ -1378,8 +1501,17 @@ static bool fetchBlocklist(String url)
 }
 
 // ---- firmware OTA ----
+static bool fwUploadAuthorized = false;
+
 static void handleFwUpdateDone()
 {
+  sendCorsHeaders();
+  if (!fwUploadAuthorized)
+  {
+    requireAuth();
+    return;
+  }
+  fwUploadAuthorized = false;
   bool ok = !Update.hasError();
   web.send(ok ? 200 : 500, "text/plain", ok ? "ok, rebooting" : "firmware update failed");
   if (ok)
@@ -1392,12 +1524,12 @@ static void handleFwUpdateDone()
 
 static void handleFwUpload()
 {
-  if (!checkAuth())
-  {
-    requireAuth();
-    return;
-  }
   HTTPUpload &u = web.upload();
+  if (u.status == UPLOAD_FILE_START)
+    fwUploadAuthorized = checkAuth() && checkToken();
+  // Response is sent once by handleFwUpdateDone; never flash unauthenticated data
+  if (!fwUploadAuthorized)
+    return;
   if (u.status == UPLOAD_FILE_START)
   {
     LOG("[fw-ota] %s\n", u.filename.c_str());
@@ -1663,7 +1795,7 @@ static void saveConfig()
 
   for (int i = 0; i < numClients; i++)
   {
-    if (clients[i].mac.length() > 0)
+    if (clients[i].mac.length() > 0 && clients[i].mac != "00:00:00:00:00:00")
     {
       JsonObject ms = doc["macs"][clients[i].mac].to<JsonObject>();
       ms["profile"] = clients[i].currentProfileId;

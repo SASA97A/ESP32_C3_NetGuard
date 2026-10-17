@@ -51,53 +51,60 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
   return universalFetch(url, { ...options, headers });
 }
 
-export function uploadOTA(file: File, onProgress: (pct: number) => void): Promise<void> {
+export async function uploadOTA(file: File, onProgress: (pct: number) => void): Promise<void> {
   if (isTauri()) {
-    return new Promise(async (resolve, reject) => {
-      onProgress(10);
-      const endpoint = `/update?token=${getSessionToken()}`;
-      const url = `${getApiBaseUrl()}${endpoint}`;
-      
-      try {
-        // Manually construct multipart/form-data payload for tauriFetch
-        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
-        const fileBuffer = await file.arrayBuffer();
-        const encoder = new TextEncoder();
-        
-        const header = encoder.encode(
-          `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="update"; filename="${file.name}"\r\n` +
-          `Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`
-        );
-        const footer = encoder.encode(`\r\n--${boundary}--\r\n`);
-        
-        const body = new Uint8Array(header.length + fileBuffer.byteLength + footer.length);
-        body.set(header, 0);
-        body.set(new Uint8Array(fileBuffer), header.length);
-        body.set(footer, header.length + fileBuffer.byteLength);
-        
-        onProgress(50);
-        const res = await tauriFetch(url, {
-          method: 'POST',
-          headers: {
-            'Authorization': getAuthHeader(),
-            'Content-Type': `multipart/form-data; boundary=${boundary}`
-          },
-          body: body
-        });
-        
-        if (res.ok) {
-          onProgress(100);
-          resolve();
-        } else {
-          reject(new Error(`Status ${res.status}: await res.text()`));
-        }
-      } catch (err) {
-        reject(new Error('Network error during upload'));
-      }
-    });
+    try {
+      await uploadOTANative(file, onProgress);
+      return;
+    } catch (e) {
+      // Rejected by the device: don't retry, surface its message
+      if (e instanceof HttpStatusError) throw e;
+      console.warn("Tauri OTA upload failed, falling back to XHR", e);
+    }
   }
+  return uploadOTAXhr(file, onProgress);
+}
 
+class HttpStatusError extends Error {}
+
+async function uploadOTANative(file: File, onProgress: (pct: number) => void): Promise<void> {
+  onProgress(10);
+  const url = `${getApiBaseUrl()}/update?token=${getSessionToken()}`;
+
+  // Manually construct multipart/form-data payload for tauriFetch
+  const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+  const fileBuffer = await file.arrayBuffer();
+  const encoder = new TextEncoder();
+
+  const header = encoder.encode(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="update"; filename="${file.name}"\r\n` +
+    `Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`
+  );
+  const footer = encoder.encode(`\r\n--${boundary}--\r\n`);
+
+  const body = new Uint8Array(header.length + fileBuffer.byteLength + footer.length);
+  body.set(header, 0);
+  body.set(new Uint8Array(fileBuffer), header.length);
+  body.set(footer, header.length + fileBuffer.byteLength);
+
+  onProgress(50);
+  const res = await tauriFetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': getAuthHeader(),
+      'Content-Type': `multipart/form-data; boundary=${boundary}`
+    },
+    body: body
+  });
+
+  if (!res.ok) {
+    throw new HttpStatusError(`Status ${res.status}: ${await res.text()}`);
+  }
+  onProgress(100);
+}
+
+function uploadOTAXhr(file: File, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const endpoint = `/update?token=${getSessionToken()}`;
