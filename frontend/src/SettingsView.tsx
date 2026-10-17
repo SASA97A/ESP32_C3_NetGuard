@@ -237,7 +237,7 @@ export default function SettingsView() {
             ))}
           </select>
           {tzMsg && <div className="text-xs font-medium text-primary mt-1">{tzMsg}</div>}
-          {clock && clock !== 'ntp' && (
+          {clock && clock !== 'ntp' && clock !== 'http' && (
             <div className="text-xs font-medium text-error mt-1">
               {clock === 'unset'
                 ? 'Clock not set yet (no internet time). Bedtime schedules are paused until it syncs.'

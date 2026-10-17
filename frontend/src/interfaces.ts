@@ -6,6 +6,7 @@ export interface Profile {
   mode?: number;
   limits?: string[];
   bl?: boolean;
+  doh?: boolean;
 }
 
 export interface Client {
@@ -15,6 +16,26 @@ export interface Client {
   blocked: boolean;
   manualBlock?: boolean;
   name: string;
+  q?: number;
+  b?: number;
+}
+
+// 0 allowed, 1 blocklist/custom, 2 manual block, 3 bedtime, 4 app limit, 5 encrypted DNS
+export type QueryReason = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface QueryLogEntry {
+  t: number;
+  ip: string;
+  mac: string;
+  d: string;
+  r: QueryReason;
+  p: number;
+}
+
+export interface QueryLogResponse {
+  now: number;
+  log: QueryLogEntry[];
+  top: { d: string; n: number }[];
 }
 
 export interface BlocklistInfo {
@@ -37,7 +58,7 @@ export interface StatsResponse {
   token: string;
   timezone: string;
   version?: string;
-  clock?: 'ntp' | 'restored' | 'set' | 'unset';
+  clock?: 'ntp' | 'http' | 'restored' | 'set' | 'unset';
   blocked?: number;
   allowed?: number;
   blocklist?: BlocklistInfo;

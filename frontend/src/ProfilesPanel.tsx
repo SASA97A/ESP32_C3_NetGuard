@@ -175,6 +175,19 @@ export default function ProfilesPanel({
                     className="w-5 h-5 accent-primary shrink-0"
                   />
                 </label>
+                <label className={`flex items-center justify-between gap-3 ${editingIdx !== idx ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <span>
+                    <span className="block font-label-md text-label-md text-on-surface">Block Encrypted DNS</span>
+                    <span className="block font-label-sm text-label-sm text-on-surface-variant">Stop browsers and apps from bypassing filtering with DNS-over-HTTPS (dns.google, cloudflare-dns.com, ...).</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={prof.doh ?? idx !== 0}
+                    disabled={editingIdx !== idx}
+                    onChange={(e) => onUpdateProfileField(idx, 'doh', e.target.checked)}
+                    className="w-5 h-5 accent-primary shrink-0"
+                  />
+                </label>
               </div>
             </div>
 

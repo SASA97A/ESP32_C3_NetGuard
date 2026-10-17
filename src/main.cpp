@@ -21,6 +21,7 @@
 #include "secrets.h"
 #include "scheduler.h"
 #include "blocklist_parse.h"
+#include "http_date.h"
 #include "dashboard_html.h"
 
 // ---- config ----
@@ -36,6 +37,10 @@ static const int MAX_TCP_DNS = 4;
 static const int DNS_BURST = 8;               // packets handled per loop pass
 static const uint32_t TCP_DNS_IDLE_MS = 3000;
 static const uint32_t MAX_FORWARD_TTL = 300;  // a new block takes effect within 5 min
+static const uint32_t RESTRICTED_FORWARD_TTL = 60; // profiles other than Default: within 1 min
+static const int MAX_QLOG = 200;
+static const int QLOG_DOMAIN_LEN = 52;
+static const int MAX_TOP_BLOCKED = 32;
 static const int MAX_CLIENTS = 96;
 static const int MAX_CUSTOM = 200;
 static const int MAX_DHCP_LEASES = 100;
@@ -759,6 +764,7 @@ struct Profile
   IPAddress upstreamDNS;
   int bedtimeMode; // 0 = Hard Blackout, 1 = Soft/App Limits
   bool useBlocklist = true; // apply the downloaded blocklist (custom domains always apply)
+  bool blockDoh = false;    // refuse to resolve known DNS-over-HTTPS/TLS servers
 };
 
 Profile profiles[10]; // dynamic up to 10 profiles
@@ -777,10 +783,116 @@ struct Dev
   uint8_t currentProfileId; // Profile index
   bool manualBlock;
   uint32_t lastSeen;
+  uint32_t queries;
+  uint32_t blocked;
 };
 Dev clients[MAX_CLIENTS];
 int numClients = 0;
 uint32_t totalBlocked = 0, totalAllowed = 0;
+
+// ---- query log & top blocked (RAM only, cleared on reboot) ----
+enum QReason : uint8_t
+{
+  Q_ALLOWED = 0,
+  Q_LISTED = 1,   // blocklist or custom domain
+  Q_MANUAL = 2,   // device blocked by hand
+  Q_BEDTIME = 3,  // hard bedtime
+  Q_APPLIMIT = 4, // soft bedtime app limit
+  Q_DOH = 5,      // encrypted DNS server
+};
+
+struct QLog
+{
+  uint32_t t; // epoch seconds (seconds since boot while the clock is unset)
+  uint32_t ip;
+  uint8_t mac[6];
+  uint8_t reason;
+  uint8_t pid;
+  char d[QLOG_DOMAIN_LEN];
+};
+static QLog qlog[MAX_QLOG];
+static int qlogHead = 0; // next slot to write
+static int qlogCount = 0;
+
+struct TopEntry
+{
+  char d[QLOG_DOMAIN_LEN];
+  uint32_t n;
+};
+static TopEntry topBlocked[MAX_TOP_BLOCKED];
+static int numTopBlocked = 0;
+
+// Space-saving counter: a new domain replaces the least counted one and inherits its
+// count, so heavy hitters stay in the table with bounded memory.
+static void countTopBlocked(const char *d)
+{
+  int minIdx = 0;
+  for (int i = 0; i < numTopBlocked; i++)
+  {
+    if (strcmp(topBlocked[i].d, d) == 0)
+    {
+      topBlocked[i].n++;
+      return;
+    }
+    if (topBlocked[i].n < topBlocked[minIdx].n)
+      minIdx = i;
+  }
+  if (numTopBlocked < MAX_TOP_BLOCKED)
+  {
+    strlcpy(topBlocked[numTopBlocked].d, d, QLOG_DOMAIN_LEN);
+    topBlocked[numTopBlocked++].n = 1;
+    return;
+  }
+  strlcpy(topBlocked[minIdx].d, d, QLOG_DOMAIN_LEN);
+  topBlocked[minIdx].n++;
+}
+
+static void parseMac(const String &s, uint8_t *mac)
+{
+  unsigned int b[6] = {0};
+  sscanf(s.c_str(), "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+  for (int i = 0; i < 6; i++)
+    mac[i] = (uint8_t)b[i];
+}
+
+static void logQuery(Dev *c, uint32_t ip, uint8_t pid, const char *domain, uint8_t reason)
+{
+  if (!domain[0])
+    return;
+  uint32_t t = (uint32_t)time(nullptr);
+  if (c)
+  {
+    c->queries++;
+    if (reason != Q_ALLOWED)
+      c->blocked++;
+  }
+  if (reason == Q_LISTED || reason == Q_APPLIMIT || reason == Q_DOH)
+    countTopBlocked(domain);
+
+  // Stub resolvers retry and ask for A + AAAA: collapse repeats from the same device
+  if (qlogCount)
+  {
+    QLog &last = qlog[(qlogHead + MAX_QLOG - 1) % MAX_QLOG];
+    if (last.ip == ip && last.reason == reason && t - last.t < 3 && strncmp(last.d, domain, QLOG_DOMAIN_LEN - 1) == 0)
+      return;
+  }
+  QLog &e = qlog[qlogHead];
+  e.t = t;
+  e.ip = ip;
+  if (c)
+    parseMac(c->mac, e.mac);
+  else
+    memset(e.mac, 0, 6);
+  e.reason = reason;
+  e.pid = pid;
+  strlcpy(e.d, domain, QLOG_DOMAIN_LEN);
+  for (char *p = e.d; *p; p++)
+    if (*p < 0x21 || *p > 0x7e)
+      *p = '?'; // query names are raw bytes; keep the JSON valid
+  qlogHead = (qlogHead + 1) % MAX_QLOG;
+  if (qlogCount < MAX_QLOG)
+    qlogCount++;
+}
 
 static void getMac(uint32_t ip, uint8_t *mac)
 {
@@ -916,9 +1028,12 @@ static Dev *getClient(uint32_t ip)
   Dev *c = &clients[slot];
   c->ip = ip;
   c->mac = currentMac;
+  c->friendlyName = "";
   c->currentProfileId = 0;
   c->manualBlock = false;
   c->lastSeen = millis();
+  c->queries = 0;
+  c->blocked = 0;
   return c;
 }
 
@@ -993,6 +1108,38 @@ static bool isCanary(const char *domain)
   return false;
 }
 
+// Encrypted DNS (DoH/DoT) servers. Refusing to resolve them makes browsers, Android
+// Private DNS ("automatic") and most apps fall back to plain DNS through this resolver.
+// Each entry also matches its subdomains (mozilla.cloudflare-dns.com, ...).
+static const char *DOH_DOMAINS[] = {
+    "dns.google", "dns.google.com", "8888.google", "cloudflare-dns.com", "one.one.one.one",
+    "dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net", "dns12.quad9.net",
+    "dns.adguard.com", "dns.adguard-dns.com", "dns-unfiltered.adguard.com", "dns-family.adguard.com",
+    "dns.nextdns.io", "dns.cleanbrowsing.org", "dns.alidns.com", "dns.twnic.tw", "dns.mullvad.net",
+    "dns.controld.com", "freedns.controld.com", "dns.umbrella.com", "dns.sb", "dns0.eu",
+    "dns.switch.ch", "dns.digitale-gesellschaft.ch", "dns.njal.la", "dnsforge.de", "ordns.he.net",
+    "odvr.nic.cz", "dns.aa.net.uk", "dns.brahma.world", "dns.decloudus.com", "dns.rubyfish.cn",
+    "dns.pub", "dns.oszx.co", "dns.comss.one"};
+
+static bool endsWithDomain(const char *domain, size_t dlen, const char *entry)
+{
+  size_t elen = strlen(entry);
+  if (dlen < elen || strcmp(domain + dlen - elen, entry) != 0)
+    return false;
+  return dlen == elen || domain[dlen - elen - 1] == '.';
+}
+
+static bool isDohServer(const char *domain, size_t dlen)
+{
+  // doh.opendns.com, doh.cleanbrowsing.org, doh.mullvad.net, doh.pub, ...
+  if (dlen > 4 && strncmp(domain, "doh.", 4) == 0)
+    return true;
+  for (const char *d : DOH_DOMAINS)
+    if (endsWithDomain(domain, dlen, d))
+      return true;
+  return false;
+}
+
 static int buildNxdomain(uint8_t *pkt, int qend)
 {
   pkt[2] = 0x81;
@@ -1048,10 +1195,85 @@ static void serviceClock()
     savedAfterSync = true;
 }
 
+// ---- HTTP Date fallback ----
+// NTP (UDP 123) can be slow or filtered right after a power cut. Until it syncs, take the
+// time from the Date header of a plain HTTP request: the internet first, then the router's
+// own web page. Only a time later than the one we have is accepted, so a router with a
+// stale clock can't move bedtime backwards.
+static const uint32_t HTTP_TIME_RETRY_MS = 60000;
+static const uint32_t HTTP_TIME_FIRST_MS = 10000;
+static volatile bool httpTimeSet = false;
+static volatile bool httpTimeRunning = false;
+static uint32_t lastHttpTimeTryMs = 0;
+static char gatewayHost[16] = "";
+static uint32_t httpTimeFloor = 0; // last saved epoch, read before the task starts
+
+static int64_t httpDateFrom(const String &url)
+{
+  WiFiClient client;
+  HTTPClient http;
+  http.setConnectTimeout(2000);
+  http.setTimeout(2000);
+  if (!http.begin(client, url))
+    return 0;
+  const char *keys[] = {"Date"};
+  http.collectHeaders(keys, 1);
+  int code = http.sendRequest("HEAD");
+  int64_t t = code > 0 ? parseHttpDate(http.header("Date").c_str()) : 0;
+  http.end();
+  return t;
+}
+
+static void httpTimeTask(void *arg)
+{
+  (void)arg;
+  const String urls[] = {"http://connectivitycheck.gstatic.com/generate_204", String("http://") + gatewayHost + "/"};
+  for (const String &u : urls)
+  {
+    if (ntpSynced || u == "http:///")
+      continue;
+    int64_t t = httpDateFrom(u);
+    time_t floor = time(nullptr);
+    if ((time_t)httpTimeFloor > floor)
+      floor = httpTimeFloor;
+    if (floor < MIN_VALID_EPOCH)
+      floor = MIN_VALID_EPOCH;
+    if (t > floor && !ntpSynced)
+    {
+      struct timeval tv = {(time_t)t, 0};
+      settimeofday(&tv, nullptr);
+      httpTimeSet = true;
+      LOG("[clock] set from HTTP Date of %s\n", u.c_str());
+      break;
+    }
+  }
+  httpTimeRunning = false;
+  vTaskDelete(nullptr);
+}
+
+static void serviceHttpTime()
+{
+  uint32_t now = millis();
+  if (ntpSynced || httpTimeSet || httpTimeRunning || now < HTTP_TIME_FIRST_MS || WiFi.status() != WL_CONNECTED)
+    return;
+  if (lastHttpTimeTryMs && now - lastHttpTimeTryMs < HTTP_TIME_RETRY_MS)
+    return;
+  lastHttpTimeTryMs = now;
+  strlcpy(gatewayHost, WiFi.gatewayIP().toString().c_str(), sizeof(gatewayHost));
+  if (strcmp(gatewayHost, "0.0.0.0") == 0)
+    gatewayHost[0] = 0;
+  httpTimeFloor = clockPrefs.getUInt("epoch", 0);
+  httpTimeRunning = true;
+  if (xTaskCreate(httpTimeTask, "httptime", 8192, nullptr, 1, nullptr) != pdPASS)
+    httpTimeRunning = false;
+}
+
 static const char *clockState()
 {
   if (ntpSynced)
     return "ntp";
+  if (httpTimeSet)
+    return "http";
   if (time(nullptr) >= MIN_VALID_EPOCH)
     return clockRestored ? "restored" : "set";
   return "unset";
@@ -1063,9 +1285,15 @@ void setupTime()
   {
     timezoneStr = "UTC0"; // Fallback
   }
+  // Many routers answer NTP themselves: use the gateway as the third server. lwIP keeps
+  // the pointer, so the name lives in a static buffer.
+  static char gwNtp[16] = "";
+  IPAddress gw = WiFi.gatewayIP();
+  if ((uint32_t)gw != 0)
+    strlcpy(gwNtp, gw.toString().c_str(), sizeof(gwNtp));
   sntp_set_time_sync_notification_cb(onNtpSync);
   sntp_servermode_dhcp(1); // Enable DHCP provided NTP if available
-  configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov");
+  configTzTime(timezoneStr.c_str(), "pool.ntp.org", "time.nist.gov", gwNtp[0] ? gwNtp : nullptr);
 }
 
 bool isTimerActive(uint8_t profileId)
@@ -1310,23 +1538,28 @@ static int judgeQuery(uint32_t ip, uint8_t *pkt, int len, uint8_t *pidOut)
     pid = 0;
   *pidOut = pid;
 
-  bool blocked = c ? c->manualBlock : false;
-  if (!blocked && isTimerActive(pid))
+  uint8_t reason = Q_ALLOWED;
+  if (c && c->manualBlock)
+    reason = Q_MANUAL;
+  else if (isTimerActive(pid))
   {
     if (profiles[pid].bedtimeMode == 0)
-      blocked = true;
-    else
-      blocked = inSoftBlockList(pid, domain, dl);
+      reason = Q_BEDTIME;
+    else if (inSoftBlockList(pid, domain, dl))
+      reason = Q_APPLIMIT;
   }
-  if (!blocked && dl)
-    blocked = isListed(domain, dl, profiles[pid].useBlocklist);
+  if (reason == Q_ALLOWED && dl && profiles[pid].blockDoh && isDohServer(domain, dl))
+    reason = Q_DOH;
+  if (reason == Q_ALLOWED && dl && isListed(domain, dl, profiles[pid].useBlocklist))
+    reason = Q_LISTED;
 
-  if (blocked)
-  {
-    totalBlocked++;
-    return buildBlocked(pkt, qend, qtype);
-  }
-  return 0;
+  logQuery(c, ip, pid, domain, reason);
+  if (reason == Q_ALLOWED)
+    return 0;
+  totalBlocked++;
+  if (reason == Q_DOH)
+    return buildNxdomain(pkt, qend); // NXDOMAIN makes clients fall back instead of retrying
+  return buildBlocked(pkt, qend, qtype);
 }
 
 static bool forwardQuery(uint8_t *pkt, int len, uint8_t pid, uint32_t cip, uint16_t cport, int8_t tcpConn)
@@ -1381,7 +1614,7 @@ static void pollUpstream()
     dnsBuf[1] = p.originalID & 0xFF;
 
     // Short TTLs make a new block (or the start of bedtime) take effect quickly
-    uint32_t maxTtl = MAX_FORWARD_TTL;
+    uint32_t maxTtl = p.profileId == 0 ? MAX_FORWARD_TTL : RESTRICTED_FORWARD_TTL;
     int32_t secsUntil = getSecondsUntilBedtime(p.profileId);
     if (secsUntil > 0 && (uint32_t)secsUntil < maxTtl)
       maxTtl = (secsUntil < 15) ? 15 : (uint32_t)secsUntil;
@@ -1988,6 +2221,7 @@ static void handleStats()
          ",\"mode\":" + String(profiles[i].bedtimeMode) +
          ",\"dns\":\"" + profiles[i].upstreamDNS.toString() + "\"" +
          ",\"bl\":" + (profiles[i].useBlocklist ? "true" : "false") +
+         ",\"doh\":" + (profiles[i].blockDoh ? "true" : "false") +
          ",\"limits\":[";
     for (int k = 0; k < numProfileAppLimits[i]; k++)
     {
@@ -2007,7 +2241,8 @@ static void handleStats()
          "\",\"name\":\"" + jesc(c.friendlyName) +
          "\",\"profile\":" + String(c.currentProfileId);
     j += ",\"manualBlock\":" + (c.manualBlock ? String("true") : String("false"));
-    j += ",\"blocked\":" + (blocked ? String("true") : String("false")) + "}";
+    j += ",\"blocked\":" + (blocked ? String("true") : String("false"));
+    j += ",\"q\":" + String(c.queries) + ",\"b\":" + String(c.blocked) + "}";
   }
   j += "]}";
   web.send(200, "application/json", j);
@@ -2089,6 +2324,8 @@ static void handleSaveProfiles()
       }
       if (!p["bl"].isNull())
         profiles[idx].useBlocklist = p["bl"].as<bool>();
+      if (!p["doh"].isNull())
+        profiles[idx].blockDoh = p["doh"].as<bool>();
       idx++;
     }
     if (idx > 0)
@@ -2295,6 +2532,61 @@ static void handleCustom()
     removeCustom(web.arg("remove"));
   }
   web.send(200, "application/json", "[" + customJson() + "]");
+}
+
+// GET /api/log[?mac=aa:bb:..][&blocked=1]: newest first, plus the top blocked domains
+static void handleQueryLog()
+{
+  sendCorsHeaders();
+  if (!checkAuth())
+  {
+    requireAuth();
+    return;
+  }
+  uint8_t want[6] = {0};
+  bool byMac = web.hasArg("mac") && web.arg("mac").length() > 0;
+  if (byMac)
+    parseMac(web.arg("mac"), want);
+  bool onlyBlocked = web.arg("blocked") == "1";
+
+  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  web.send(200, "application/json", "");
+  String j = "{\"now\":" + String((uint32_t)time(nullptr)) + ",\"log\":[";
+  bool first = true;
+  for (int n = 0; n < qlogCount; n++)
+  {
+    const QLog &e = qlog[(qlogHead + MAX_QLOG - 1 - n) % MAX_QLOG];
+    if (byMac && memcmp(e.mac, want, 6) != 0)
+      continue;
+    if (onlyBlocked && e.reason == Q_ALLOWED)
+      continue;
+    j += first ? "" : ",";
+    first = false;
+    j += "{\"t\":" + String(e.t) + ",\"ip\":\"" + IPAddress(e.ip).toString() + "\",\"mac\":\"" + macStr(e.mac) +
+         "\",\"d\":\"" + jesc(String(e.d)) + "\",\"r\":" + String(e.reason) + ",\"p\":" + String(e.pid) + "}";
+    if (j.length() > 1024)
+    {
+      web.sendContent(j);
+      j = "";
+    }
+  }
+  j += "],\"top\":[";
+
+  // Sort indexes by count; the table is small
+  int order[MAX_TOP_BLOCKED];
+  for (int i = 0; i < numTopBlocked; i++)
+    order[i] = i;
+  std::sort(order, order + numTopBlocked, [](int a, int b)
+            { return topBlocked[a].n > topBlocked[b].n; });
+  for (int i = 0; i < numTopBlocked; i++)
+  {
+    const TopEntry &t = topBlocked[order[i]];
+    j += (i ? "," : "");
+    j += "{\"d\":\"" + jesc(String(t.d)) + "\",\"n\":" + String(t.n) + "}";
+  }
+  j += "]}";
+  web.sendContent(j);
+  web.sendContent("");
 }
 
 // ---- remote config ----
@@ -2627,6 +2919,10 @@ static void initDefaultProfiles()
   profiles[2].endBedtimeMinutes = -1;
   profiles[2].upstreamDNS = IPAddress(1, 1, 1, 1);
 
+  // Profiles other than Default are restricted: they can't switch to encrypted DNS
+  for (int i = 0; i < 10; i++)
+    profiles[i].blockDoh = i != 0;
+
   numProfiles = 3;
   timezoneStr = "UTC0";
 }
@@ -2644,6 +2940,7 @@ static void saveConfig()
     doc["profiles"][i]["mode"] = profiles[i].bedtimeMode;
     doc["profiles"][i]["dns"] = profiles[i].upstreamDNS.toString();
     doc["profiles"][i]["bl"] = profiles[i].useBlocklist;
+    doc["profiles"][i]["doh"] = profiles[i].blockDoh;
     JsonArray limits = doc["profiles"][i]["limits"].to<JsonArray>();
     for (int j = 0; j < numProfileAppLimits[i]; j++)
     {
@@ -2738,6 +3035,8 @@ static void loadConfig()
       }
       if (!p["bl"].isNull())
         profiles[idx].useBlocklist = p["bl"].as<bool>();
+      if (!p["doh"].isNull())
+        profiles[idx].blockDoh = p["doh"].as<bool>();
       idx++;
     }
     if (idx > 0)
@@ -2821,6 +3120,7 @@ void setup()
     runCaptivePortal();
     return;
   }
+  setupTime(); // again, now that the gateway (a likely NTP server) is known
 
   if (MDNS.begin("c3netguard"))
   {
@@ -2839,6 +3139,7 @@ void setup()
   web.on("/api/assign", HTTP_POST, handleAssignProfile);
   web.on("/setpass", HTTP_POST, handleSetPass);
   web.on("/api/custom", HTTP_POST, handleCustom);
+  web.on("/api/log", HTTP_GET, handleQueryLog);
   web.on("/update", HTTP_POST, handleFwUpdateDone, handleFwUpload);
   web.on("/fetchnow", HTTP_POST, []()
          {
@@ -2898,6 +3199,7 @@ void loop()
     handleDhcp();
   serviceBlocklist();
   serviceClock();
+  serviceHttpTime();
   serviceOwnResolver();
 
   if (pendingCount > 0)

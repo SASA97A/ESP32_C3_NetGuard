@@ -106,7 +106,7 @@ export default function DashboardView({ activeTab, tab }: DashboardViewProps) {
       alert("Maximum 10 profiles allowed.");
       return;
     }
-    setProfiles([...profiles, { name: "New Profile", start: -1, end: -1, mode: 0, dns: "1.1.1.1", limits: [], bl: true }]);
+    setProfiles([...profiles, { name: "New Profile", start: -1, end: -1, mode: 0, dns: "1.1.1.1", limits: [], bl: true, doh: true }]);
     setIsDirty(true);
   };
 

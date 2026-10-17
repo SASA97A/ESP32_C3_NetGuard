@@ -3,6 +3,7 @@ import { HashRouter as Router, Routes, Route, Navigate, useLocation, Link } from
 import ConnectView from './ConnectView';
 import DashboardView from './DashboardView';
 import SettingsView from './SettingsView';
+import ActivityView from './ActivityView';
 
 function SidebarNav() {
   const loc = useLocation();
@@ -46,6 +47,13 @@ function SidebarNav() {
         <span className="font-label-md text-label-md">Clients</span>
       </Link>
       <Link
+        to="/activity"
+        className={getNavClass(act === '/activity')}
+      >
+        <span className="material-symbols-outlined" data-icon="history" style={act === '/activity' ? { fontVariationSettings: "'FILL' 1" } : undefined}>history</span>
+        <span className="font-label-md text-label-md">Activity</span>
+      </Link>
+      <Link
         to="/settings"
         className={getNavClass(act === '/settings')}
       >
@@ -76,6 +84,10 @@ function BottomNav() {
       <Link to="/clients" className={`flex-1 min-w-[64px] mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/clients' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">devices</span>
         <span className="font-label-md text-[10px] mt-1">Clients</span>
+      </Link>
+      <Link to="/activity" className={`flex-1 min-w-[64px] mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/activity' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
+        <span className="material-symbols-outlined">history</span>
+        <span className="font-label-md text-[10px] mt-1">Activity</span>
       </Link>
       <Link to="/settings" className={`flex-1 min-w-[64px] mx-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-transform active:scale-95 ${act === '/settings' ? 'bg-primary text-on-primary' : 'text-on-surface-variant'}`}>
         <span className="material-symbols-outlined">settings</span>
@@ -195,6 +207,7 @@ function AppContent() {
           <Route path="/profiles" element={<DashboardView tab="profiles" />} />
           <Route path="/filters" element={<DashboardView tab="filters" />} />
           <Route path="/clients" element={<DashboardView tab="clients" />} />
+          <Route path="/activity" element={<ActivityView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>

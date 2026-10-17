@@ -11,7 +11,9 @@ NetGuard acts as an intercepting DNS gateway on your network, allowing administr
 * **Scheduled Blocking (Bedtimes):** Define exact start and end times for internet cutoffs on a per-profile basis.
 * **DNS Routing:** Conditionally route specific profiles through custom upstream DNS servers for filtering or tracking.
 * **Blocklists:** Download hosts, plain-domain or adblock-style lists (e.g. StevenBlack) straight onto the device, refreshed on a schedule, plus an "Always Blocked" custom list. Each profile chooses whether the downloaded list applies.
-* **Bypass Hardening:** Short DNS TTLs so blocks apply within minutes, DoH canary domains answered NXDOMAIN, and new or unidentified devices held briefly until their MAC is known so they never fall onto an unrestricted profile.
+* **Bypass Hardening:** Short DNS TTLs (60 s on restricted profiles, 5 min on Default) so blocks apply quickly, DoH canary domains answered NXDOMAIN, known encrypted-DNS servers (dns.google, cloudflare-dns.com, doh.\*, ...) refused on restricted profiles, and new or unidentified devices held briefly until their MAC is known so they never fall onto an unrestricted profile.
+* **Activity Log:** Per-device log of recent lookups (allowed / blocked and why) and a "Top Blocked" domain list. Kept in RAM only and cleared on reboot.
+* **Reliable Bedtimes:** The clock is saved to flash and restored after a power cut, then corrected from NTP (including the router, if it serves NTP) or, failing that, the HTTP `Date` header of the internet or the router.
 * **Optional DHCP Server:** Hands out leases with NetGuard as the only DNS server; leases persist across reboots. Disable your router's DHCP before enabling it.
 * **Secure Authentication:** Locally authenticated dashboard ensures only network administrators can alter routing rules.
 * **Real-time Polling & PWA:** The dashboard operates as an installable Progressive Web App, securely polling your ESP32 in the background to reflect network statistics, hardware temperatures, and access states dynamically.
